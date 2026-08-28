@@ -13,12 +13,12 @@ export function IpadHome() {
         </header>
 
         <section className="flex flex-1 flex-col justify-center py-12" aria-labelledby="welcome-title">
-          <p className="mb-3 font-mono text-xs tracking-[0.18em] text-[var(--ui-text-tertiary)]">IPAD CLIENT · PREVIEW</p>
+          <p className="mb-3 font-mono text-xs tracking-[0.18em] text-[var(--ui-text-tertiary)]">MOBILE CLIENT · PREVIEW</p>
           <h2 className="max-w-xl text-4xl font-semibold tracking-[-0.04em] sm:text-5xl" id="welcome-title">
             Ready when your workspace is.
           </h2>
           <p className="mt-5 max-w-lg text-base leading-7 text-[var(--ui-text-secondary)]">
-            This first build keeps the Hermes experience on your iPad while your agent stays on another computer.
+            This first build keeps the Hermes experience on your mobile device while your agent stays on another computer.
           </p>
           <div className="mt-8 inline-flex w-fit items-center gap-2 rounded-full bg-[var(--ui-bg-quaternary)] px-3 py-2 text-sm text-[var(--ui-text-secondary)]">
             <span aria-hidden="true" className="size-2 rounded-full bg-amber-500" />

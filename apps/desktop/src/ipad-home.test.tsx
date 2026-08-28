@@ -8,7 +8,7 @@ describe('IpadHome', () => {
     render(<IpadHome />)
 
     expect(screen.getByRole('heading', { name: 'Hermes' })).toBeTruthy()
-    expect(screen.getByText('Your remote workspace')).toBeTruthy()
+    expect(screen.getByText('MOBILE CLIENT · PREVIEW')).toBeTruthy()
     expect(screen.getByText('Backend not connected')).toBeTruthy()
     expect(screen.getByRole('textbox', { name: 'Message composer' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Send message' }).hasAttribute('disabled')).toBe(true)
