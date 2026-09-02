@@ -9,6 +9,7 @@
 - [x] Non-image attachment staging and prompt reference ordering.
 - [x] Connect/disconnect/unexpected-close/reconnect state controls.
 - [x] Android API 36 build, install, launch, offline screenshot/hierarchy evidence.
+- [x] Rebased delivery branch (`mobile-capacitor-client`) API 36 build/install/launch regression and pushed evidence (`android-mobile-rebased-final-validation.md`).
 - [x] Mobile adapter/UI suite, shared replay suite, typecheck, mobile build, diff check.
 
 ## Pending external prerequisites

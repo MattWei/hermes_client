@@ -36,6 +36,18 @@ APK SHA-256: 34ff23262ce9e58c112e410d61c70be874a87002fdfc9d5309a79325d48ff023
 
 See `openspec/changes/ipad-remote-hermes-client/evidence/`.
 
+## Delivery branch and final Android regression
+
+The push target contains an independent historical snapshot on `main`; this implementation was safely replayed onto that snapshot rather than force-pushing or merging unrelated histories.
+
+```text
+Repository: https://github.com/MattWei/hermes_client.git
+Delivery branch: mobile-capacitor-client
+Latest verified commit: 75f21b6edf585b6461041e33fa79f94f88799468
+```
+
+`evidence/android-mobile-rebased-final-validation.md` records the post-rebase API 36 native build/install/launch regression, APK hash, screenshot, and UI hierarchy. It confirms only the default offline surface; it does not replace secure PKCE, trusted ingress, physical LAN, or iPadOS evidence.
+
 ## macOS prerequisites
 
 Use a macOS host with Xcode, an iOS simulator or physical iPad, and signing provisioned for `com.nousresearch.hermes.client`. Do not treat iOS project generation on Linux as iPadOS evidence.
