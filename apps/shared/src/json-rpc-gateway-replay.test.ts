@@ -289,8 +289,32 @@ describe('JsonRpcGatewayClient event-seq tracking + replay resume', () => {
     client.close()
   })
 
-  it('clears stale watermarks when the backend epoch changes (restart poisoning)', async () => {
+  it('emits a local replay-gap event when a replay window is truncated', async () => {
     const client = makeClient()
+    const gaps: string[] = []
+    client.on('session.replay.gap', event => gaps.push(event.session_id ?? ''))
+    const first = client.connect('ws://x')
+    let sock = sockets[sockets.length - 1]
+    sock.open()
+    await first
+    sock.serverFrame({ jsonrpc: '2.0', method: 'event', params: { type: 'message.delta', session_id: 's1', seq: 5 } })
+    client.invalidate('drop')
+    const second = client.connect('ws://x')
+    sock = sockets[sockets.length - 1]
+    sock.open()
+    await second
+    await vi.waitFor(() => expect(sock.lastRequest().method).toBe('session.events.since'))
+    const request = sock.lastRequest()
+    sock.serverFrame({ jsonrpc: '2.0', id: request.id, result: { events: [], latest_seq: 9, truncated: true, count: 0 } })
+
+    await vi.waitFor(() => expect(gaps).toEqual(['s1']))
+    client.close()
+  })
+
+  it('clears stale watermarks and emits replay gaps when the backend epoch changes (restart poisoning)', async () => {
+    const client = makeClient()
+    const gaps: string[] = []
+    client.on('session.replay.gap', event => gaps.push(event.session_id ?? ''))
 
     const first = client.connect('ws://x')
     let sock = sockets[sockets.length - 1]
@@ -327,6 +351,7 @@ describe('JsonRpcGatewayClient event-seq tracking + replay resume', () => {
     await vi.waitFor(() => {
       expect(client.getSeqWatermarks()).toEqual({})
     })
+    expect(gaps).toEqual(['s1'])
 
     // New-epoch events build fresh watermarks from scratch.
     sock.serverFrame({ jsonrpc: '2.0', method: 'event', params: { type: 'message.delta', session_id: 's1', seq: 3 } })

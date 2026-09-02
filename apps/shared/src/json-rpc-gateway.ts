@@ -548,7 +548,7 @@ export class JsonRpcGatewayClient {
       // One RPC per known session keeps params flat; sessions are few (<20).
       const results = await Promise.allSettled(
         entries.map(([sid, lastSeen]) =>
-          this.request<{ events?: Array<{ type: string; session_id?: string; seq?: number; payload?: unknown }> }>(
+          this.request<{ events?: Array<{ type: string; session_id?: string; seq?: number; payload?: unknown }>; truncated?: unknown }>(
             'session.events.since',
             { session_id: sid, last_seen: lastSeen },
             REPLAY_REQUEST_TIMEOUT_MS
@@ -556,9 +556,14 @@ export class JsonRpcGatewayClient {
         )
       )
 
-      for (const result of results) {
+      for (const [index, result] of results.entries()) {
+        const [sid] = entries[index]!
         if (result.status !== 'fulfilled' || !Array.isArray(result.value?.events)) {
           continue
+        }
+
+        if (result.value.truncated === true) {
+          this.dispatchEvent({ session_id: sid, type: 'session.replay.gap' })
         }
 
         const epoch = (result.value as { epoch?: unknown }).epoch
@@ -624,7 +629,11 @@ export class JsonRpcGatewayClient {
     }
 
     if (this.replayEpoch !== null) {
+      const affectedSessionIds = [...this.lastSeenSeq.keys()]
       this.lastSeenSeq.clear()
+      for (const sessionId of affectedSessionIds) {
+        this.dispatchEvent({ session_id: sessionId, type: 'session.replay.gap' })
+      }
     }
 
     this.replayEpoch = epoch
