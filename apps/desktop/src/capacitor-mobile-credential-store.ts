@@ -5,7 +5,7 @@ import { createMobileCredentialStore, type NativeCredentialStore } from './mobil
 interface NativeSecureStorePlugin {
   get(options: { key: string }): Promise<{ value?: string }>
   remove(options: { key: string }): Promise<void>
-  set(options: { key: string, value: string }): Promise<void>
+  set(options: { key: string; value: string }): Promise<void>
 }
 
 const secureStore = registerPlugin<NativeSecureStorePlugin>('SecureStore')

@@ -1,6 +1,6 @@
 import { Capacitor, CapacitorHttp } from '@capacitor/core'
 
-import { parseMobileConnection, type MobileConnectionMode } from './mobile-connection'
+import { type MobileConnectionMode, parseMobileConnection } from './mobile-connection'
 
 export interface MobileGatewayRestConfig {
   accessToken?: string
@@ -19,11 +19,7 @@ interface NativeHttpResponse {
 interface MobileGatewayRestRuntime {
   isNativePlatform(): boolean
   nativeHttp: {
-    get(options: {
-      headers: Record<string, string>
-      responseType: 'text'
-      url: string
-    }): Promise<NativeHttpResponse>
+    get(options: { headers: Record<string, string>; responseType: 'text'; url: string }): Promise<NativeHttpResponse>
   }
 }
 
@@ -40,19 +36,21 @@ export function createMobileGatewayRestClient(
   runtime: MobileGatewayRestRuntime = capacitorRuntime
 ) {
   const connection = parseMobileConnection(config.baseUrl, config.mode, config)
-  const headers = connection.mode === 'lan'
-    ? lanHeaders(config.token)
-    : secureHeaders(config.accessToken)
+
+  const headers = connection.mode === 'lan' ? lanHeaders(config.token) : secureHeaders(config.accessToken)
 
   return {
     async get(path: string): Promise<Response> {
       if (!path.startsWith('/api/')) {
         throw new Error('Mobile gateway REST paths must begin with /api/')
       }
+
       const url = `${connection.baseUrl}${path}`
+
       if (!runtime.isNativePlatform()) {
         return fetchFn(url, { headers })
       }
+
       return toResponse(await runtime.nativeHttp.get({ url, headers, responseType: 'text' }))
     }
   }
@@ -60,6 +58,7 @@ export function createMobileGatewayRestClient(
 
 function toResponse(response: NativeHttpResponse): Response {
   const body = typeof response.data === 'string' ? response.data : JSON.stringify(response.data ?? null)
+
   return new Response(body, { headers: response.headers, status: response.status })
 }
 
@@ -67,6 +66,7 @@ function lanHeaders(token?: string): Record<string, string> {
   if (!token) {
     throw new Error('LAN connections require a session token')
   }
+
   return { 'X-Hermes-Session-Token': token }
 }
 
@@ -74,5 +74,6 @@ function secureHeaders(accessToken?: string): Record<string, string> {
   if (!accessToken) {
     throw new Error('Secure connections require an access token')
   }
+
   return { Authorization: `Bearer ${accessToken}` }
 }

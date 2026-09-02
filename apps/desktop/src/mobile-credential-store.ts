@@ -32,13 +32,13 @@ export function createMobileCredentialStore(nativeStore: NativeCredentialStore):
         nativeStore.get(ACCESS_TOKEN_KEY),
         nativeStore.get(REFRESH_TOKEN_KEY)
       ])
+
       if (accessToken && refreshToken) {
         return { accessToken, refreshToken }
       }
-      await Promise.all([
-        nativeStore.remove(ACCESS_TOKEN_KEY),
-        nativeStore.remove(REFRESH_TOKEN_KEY)
-      ])
+
+      await Promise.all([nativeStore.remove(ACCESS_TOKEN_KEY), nativeStore.remove(REFRESH_TOKEN_KEY)])
+
       return null
     },
     async saveLanSessionToken(token: string): Promise<void> {

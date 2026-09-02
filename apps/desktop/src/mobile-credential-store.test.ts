@@ -5,11 +5,17 @@ import { createMobileCredentialStore } from './mobile-credential-store'
 describe('createMobileCredentialStore', () => {
   it('stores and reads only the access and refresh token pair through the native store', async () => {
     const values = new Map<string, string>()
+
     const nativeStore = {
       get: vi.fn(async (key: string) => values.get(key) ?? null),
-      remove: vi.fn(async (key: string) => { values.delete(key) }),
-      set: vi.fn(async (key: string, value: string) => { values.set(key, value) })
+      remove: vi.fn(async (key: string) => {
+        values.delete(key)
+      }),
+      set: vi.fn(async (key: string, value: string) => {
+        values.set(key, value)
+      })
     }
+
     const store = createMobileCredentialStore(nativeStore)
 
     await store.save({ accessToken: 'access', refreshToken: 'refresh' })
@@ -20,11 +26,17 @@ describe('createMobileCredentialStore', () => {
 
   it('stores and reads a LAN static session token through the native store', async () => {
     const values = new Map<string, string>()
+
     const nativeStore = {
       get: vi.fn(async (key: string) => values.get(key) ?? null),
-      remove: vi.fn(async (key: string) => { values.delete(key) }),
-      set: vi.fn(async (key: string, value: string) => { values.set(key, value) })
+      remove: vi.fn(async (key: string) => {
+        values.delete(key)
+      }),
+      set: vi.fn(async (key: string, value: string) => {
+        values.set(key, value)
+      })
     }
+
     const store = createMobileCredentialStore(nativeStore)
 
     await store.saveLanSessionToken('lan-token')
@@ -35,7 +47,7 @@ describe('createMobileCredentialStore', () => {
 
   it('clears both tokens when either stored value is absent', async () => {
     const nativeStore = {
-      get: vi.fn(async (key: string) => key === 'hermes.mobile.access-token' ? 'access' : null),
+      get: vi.fn(async (key: string) => (key === 'hermes.mobile.access-token' ? 'access' : null)),
       remove: vi.fn(async () => undefined),
       set: vi.fn(async () => undefined)
     }
@@ -47,12 +59,17 @@ describe('createMobileCredentialStore', () => {
 
   it('fails closed when the native store rejects', async () => {
     const nativeStore = {
-      get: vi.fn(async () => { throw new Error('native store unavailable') }),
+      get: vi.fn(async () => {
+        throw new Error('native store unavailable')
+      }),
       remove: vi.fn(async () => undefined),
-      set: vi.fn(async () => { throw new Error('native store unavailable') })
+      set: vi.fn(async () => {
+        throw new Error('native store unavailable')
+      })
     }
 
-    await expect(createMobileCredentialStore(nativeStore).save({ accessToken: 'access', refreshToken: 'refresh' }))
-      .rejects.toThrow('native store unavailable')
+    await expect(
+      createMobileCredentialStore(nativeStore).save({ accessToken: 'access', refreshToken: 'refresh' })
+    ).rejects.toThrow('native store unavailable')
   })
 })

@@ -18,12 +18,20 @@ describe('createMobilePromptClient', () => {
   it('forwards only matching session delta and completion events', () => {
     let deltaHandler: ((event: any) => void) | undefined
     let completeHandler: ((event: any) => void) | undefined
+
     const on = vi.fn((type: string, handler: (event: any) => void) => {
-      if (type === 'message.delta') deltaHandler = handler
-      if (type === 'message.complete') completeHandler = handler
+      if (type === 'message.delta') {
+        deltaHandler = handler
+      }
+
+      if (type === 'message.complete') {
+        completeHandler = handler
+      }
+
       return vi.fn()
     })
-    const received: Array<{ complete: boolean, text: string }> = []
+
+    const received: Array<{ complete: boolean; text: string }> = []
     const client = createMobilePromptClient({ on, request: vi.fn() })
 
     const unsubscribe = client.onStream('runtime-42', event => received.push(event))

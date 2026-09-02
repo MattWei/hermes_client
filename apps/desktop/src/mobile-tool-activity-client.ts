@@ -14,14 +14,19 @@ function activityFromEvent(type: string, event: unknown): MobileToolActivity | n
   if (!event || typeof event !== 'object') {
     return null
   }
+
   const payload = (event as { payload?: unknown }).payload
+
   if (!payload || typeof payload !== 'object') {
     return null
   }
+
   const { error, name, tool_id: toolId } = payload as { error?: unknown; name?: unknown; tool_id?: unknown }
+
   if (typeof name !== 'string' || !name || typeof toolId !== 'string' || !toolId) {
     return null
   }
+
   return {
     id: toolId,
     name,
@@ -37,12 +42,16 @@ export function createMobileToolActivityClient(gateway: MobileToolActivityGatewa
           if (!event || typeof event !== 'object' || (event as { session_id?: unknown }).session_id !== sessionId) {
             return
           }
+
           const activity = activityFromEvent(type, event)
+
           if (activity) {
             handler(activity)
           }
         })
+
       const unsubs = [subscribe('tool.start'), subscribe('tool.progress'), subscribe('tool.complete')]
+
       return () => unsubs.forEach(unsub => unsub())
     }
   }

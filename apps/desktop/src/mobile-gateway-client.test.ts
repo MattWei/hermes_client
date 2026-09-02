@@ -26,12 +26,16 @@ class TestSocket {
   }
 
   removeEventListener(type: string, listener: (event: any) => void): void {
-    this.listeners.set(type, (this.listeners.get(type) ?? []).filter(candidate => candidate !== listener))
+    this.listeners.set(
+      type,
+      (this.listeners.get(type) ?? []).filter(candidate => candidate !== listener)
+    )
   }
 
   send(payload: string): void {
     const frame = JSON.parse(payload) as Record<string, unknown>
     this.sent.push(frame)
+
     if (frame.method === 'gateway.ping') {
       this.emit('message', { data: JSON.stringify({ jsonrpc: '2.0', id: frame.id, result: { ok: true } }) })
     }
@@ -50,11 +54,15 @@ describe('connectMobileGateway', () => {
     const socket = new TestSocket()
     const openSocket = vi.fn(() => socket as unknown as WebSocket)
 
-    const connecting = connectMobileGateway({
-      baseUrl: 'http://10.10.10.10:9119',
-      mode: 'lan',
-      token: 'lan-token'
-    }, openSocket)
+    const connecting = connectMobileGateway(
+      {
+        baseUrl: 'http://10.10.10.10:9119',
+        mode: 'lan',
+        token: 'lan-token'
+      },
+      openSocket
+    )
+
     socket.open()
     const gateway = await connecting
 
@@ -71,12 +79,16 @@ describe('connectMobileGateway', () => {
     const socket = new TestSocket()
     const openSocket = vi.fn(() => socket as unknown as WebSocket)
 
-    const connecting = connectMobileGateway({
-      allowEmulatorLoopback: true,
-      baseUrl: 'http://127.0.0.1:19130',
-      mode: 'lan',
-      token: 'lan-token'
-    }, openSocket)
+    const connecting = connectMobileGateway(
+      {
+        allowEmulatorLoopback: true,
+        baseUrl: 'http://127.0.0.1:19130',
+        mode: 'lan',
+        token: 'lan-token'
+      },
+      openSocket
+    )
+
     socket.open()
     const gateway = await connecting
 
@@ -90,12 +102,16 @@ describe('connectMobileGateway', () => {
     const socket = new TestSocket()
     const openSocket = vi.fn(() => socket as unknown as WebSocket)
 
-    const connecting = connectMobileGateway({
-      baseUrl: 'https://hermes.example.test',
-      mode: 'secure',
-      token: 'must-not-appear',
-      ticket: 'one-time-ticket'
-    }, openSocket)
+    const connecting = connectMobileGateway(
+      {
+        baseUrl: 'https://hermes.example.test',
+        mode: 'secure',
+        token: 'must-not-appear',
+        ticket: 'one-time-ticket'
+      },
+      openSocket
+    )
+
     socket.open()
     const gateway = await connecting
 

@@ -558,6 +558,7 @@ export class JsonRpcGatewayClient {
 
       for (const [index, result] of results.entries()) {
         const [sid] = entries[index]!
+
         if (result.status !== 'fulfilled' || !Array.isArray(result.value?.events)) {
           continue
         }
@@ -631,6 +632,7 @@ export class JsonRpcGatewayClient {
     if (this.replayEpoch !== null) {
       const affectedSessionIds = [...this.lastSeenSeq.keys()]
       this.lastSeenSeq.clear()
+
       for (const sessionId of affectedSessionIds) {
         this.dispatchEvent({ session_id: sessionId, type: 'session.replay.gap' })
       }

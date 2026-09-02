@@ -8,6 +8,7 @@ describe('createMobileSessionClient', () => {
       session_id: 'runtime-42',
       stored_session_id: 'stored-42'
     }))
+
     const client = createMobileSessionClient({ request })
 
     await expect(client.create('New mobile chat')).resolves.toEqual({
@@ -28,12 +29,18 @@ describe('createMobileSessionClient', () => {
   })
 
   it('lists the current backend sessions through the existing REST client', async () => {
-    const get = vi.fn(async () => new Response(JSON.stringify({
-      limit: 40,
-      offset: 0,
-      sessions: [{ id: 'stored-1', preview: 'Latest message', title: 'Existing chat' }],
-      total: 1
-    })))
+    const get = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            limit: 40,
+            offset: 0,
+            sessions: [{ id: 'stored-1', preview: 'Latest message', title: 'Existing chat' }],
+            total: 1
+          })
+        )
+    )
+
     const client = createMobileSessionClient({ request: vi.fn() }, { get })
 
     await expect(client.list()).resolves.toEqual([
@@ -43,9 +50,12 @@ describe('createMobileSessionClient', () => {
   })
 
   it('rejects an invalid session-list response', async () => {
-    const client = createMobileSessionClient({ request: vi.fn() }, {
-      get: vi.fn(async () => new Response(JSON.stringify({ sessions: 'not-an-array' })))
-    })
+    const client = createMobileSessionClient(
+      { request: vi.fn() },
+      {
+        get: vi.fn(async () => new Response(JSON.stringify({ sessions: 'not-an-array' })))
+      }
+    )
 
     await expect(client.list()).rejects.toThrow('session list')
   })
@@ -64,13 +74,20 @@ describe('createMobileSessionClient', () => {
 
   it('resumes a stored session and hydrates its REST history with Desktop message mapping', async () => {
     const request = vi.fn(async () => ({ session_id: 'runtime-2', session_key: 'stored-2' }))
-    const get = vi.fn(async () => new Response(JSON.stringify({
-      messages: [
-        { content: 'Earlier user message', role: 'user', timestamp: 1 },
-        { content: 'Earlier reply', role: 'assistant', timestamp: 2 }
-      ],
-      session_id: 'stored-2'
-    })))
+
+    const get = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            messages: [
+              { content: 'Earlier user message', role: 'user', timestamp: 1 },
+              { content: 'Earlier reply', role: 'assistant', timestamp: 2 }
+            ],
+            session_id: 'stored-2'
+          })
+        )
+    )
+
     const client = createMobileSessionClient({ request }, { get })
 
     await expect(client.resume('stored-2')).resolves.toMatchObject({

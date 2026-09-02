@@ -1,4 +1,4 @@
-import { parseMobileConnection, toWebSocketUrl, type MobileConnectionMode } from './mobile-connection'
+import { type MobileConnectionMode, parseMobileConnection, toWebSocketUrl } from './mobile-connection'
 
 export interface MobileGatewaySocketConfig {
   baseUrl: string
@@ -21,11 +21,13 @@ export function openMobileGatewaySocket(
     if (!config.token) {
       throw new Error('LAN connections require a session token')
     }
+
     wsUrl.searchParams.set('token', config.token)
   } else {
     if (!config.ticket) {
       throw new Error('Secure connections require a one-time ticket')
     }
+
     wsUrl.searchParams.set('ticket', config.ticket)
   }
 

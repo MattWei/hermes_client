@@ -34,7 +34,9 @@ describe('parseMobileConnection', () => {
       baseUrl: 'http://127.0.0.1:19119',
       mode: 'lan'
     })
-    expect(() => parseMobileConnection('http://127.0.0.2:19119', 'lan', { allowEmulatorLoopback: true })).toThrow('RFC1918 IPv4')
+    expect(() => parseMobileConnection('http://127.0.0.2:19119', 'lan', { allowEmulatorLoopback: true })).toThrow(
+      'RFC1918 IPv4'
+    )
   })
 
   it('does not accept HTTP in secure mode or HTTPS in LAN mode', () => {
