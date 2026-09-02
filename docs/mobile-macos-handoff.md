@@ -14,6 +14,16 @@ otherwise → ./desktop-main
 
 The historical component name `IpadHome` is the shared Android/iPadOS page.
 
+## Local checkout location
+
+The active WSL checkout is:
+
+```text
+/home/wmj/workspace/apple_develop/hermes_client/source/hermes-agent
+```
+
+If this checkout is relocated again, update the active Hermes profile's `terminal.cwd` to the parent directory (`.../source`) before opening a new session. Preserve historical logs and cache snapshots: they are evidence of prior locations, not live configuration.
+
 ## Implemented and verified on Android
 
 - Explicit LAN HTTP/WS mode only for literal RFC1918 IPv4, explicit risk confirmation, and static token.
