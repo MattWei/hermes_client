@@ -16,14 +16,17 @@ interface NativeHttpResponse {
   status: number
 }
 
+interface NativeHttpOptions {
+  headers: Record<string, string>
+  responseType: 'text'
+  url: string
+}
+
 interface MobileGatewayRestRuntime {
   isNativePlatform(): boolean
   nativeHttp: {
-    get(options: {
-      headers: Record<string, string>
-      responseType: 'text'
-      url: string
-    }): Promise<NativeHttpResponse>
+    get(options: NativeHttpOptions): Promise<NativeHttpResponse>
+    post(options: NativeHttpOptions & { data: unknown }): Promise<NativeHttpResponse>
   }
 }
 
@@ -44,19 +47,42 @@ export function createMobileGatewayRestClient(
     ? lanHeaders(config.token)
     : secureHeaders(config.accessToken)
 
+  async function send(path: string, init: { body?: unknown; method: 'GET' | 'POST' }): Promise<Response> {
+    if (!path.startsWith('/api/') && !path.startsWith('/auth/')) {
+      throw new Error('Mobile gateway REST paths must begin with /api/ or /auth/')
+    }
+    const requestHeaders = init.method === 'POST'
+      ? { ...headers, 'Content-Type': 'application/json' }
+      : headers
+    const url = `${connection.baseUrl}${path}`
+
+    if (!runtime.isNativePlatform()) {
+      return fetchFn(url, {
+        body: init.method === 'POST' ? JSON.stringify(init.body ?? {}) : undefined,
+        headers: requestHeaders,
+        method: init.method
+      })
+    }
+
+    const options: NativeHttpOptions = { headers: requestHeaders, responseType: 'text', url }
+    const response = init.method === 'POST'
+      ? await runtime.nativeHttp.post({ ...options, data: init.body ?? {} })
+      : await runtime.nativeHttp.get(options)
+    return toResponse(response)
+  }
+
   return {
-    async get(path: string): Promise<Response> {
-      if (!path.startsWith('/api/')) {
-        throw new Error('Mobile gateway REST paths must begin with /api/')
-      }
-      const url = `${connection.baseUrl}${path}`
-      if (!runtime.isNativePlatform()) {
-        return fetchFn(url, { headers })
-      }
-      return toResponse(await runtime.nativeHttp.get({ url, headers, responseType: 'text' }))
+    get(path: string): Promise<Response> {
+      return send(path, { method: 'GET' })
+    },
+    post(path: string, body?: unknown): Promise<Response> {
+      return send(path, { body, method: 'POST' })
     }
   }
 }
+
+/** The client's own shape — the single source of truth for its consumers. */
+export type MobileGatewayRestClient = ReturnType<typeof createMobileGatewayRestClient>
 
 function toResponse(response: NativeHttpResponse): Response {
   const body = typeof response.data === 'string' ? response.data : JSON.stringify(response.data ?? null)
@@ -71,8 +97,8 @@ function lanHeaders(token?: string): Record<string, string> {
 }
 
 function secureHeaders(accessToken?: string): Record<string, string> {
-  if (!accessToken) {
-    throw new Error('Secure connections require an access token')
-  }
-  return { Authorization: `Bearer ${accessToken}` }
+  // An absent token means the dashboard-login flow, where authentication rides the session
+  // cookie set by POST /auth/password-login. Emitting an empty Authorization header would
+  // make the request malformed instead of falling through to cookie auth.
+  return accessToken ? { Authorization: `Bearer ${accessToken}` } : {}
 }

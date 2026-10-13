@@ -4,20 +4,23 @@ import { createMobileApprovalClient, type MobileApprovalRequest } from './mobile
 import { createMobileAttachmentClient, type MobileFileAttachment } from './mobile-attachment-client'
 import { mobileCredentialStore } from './capacitor-mobile-credential-store'
 import { connectMobileGateway } from './mobile-gateway-client'
-import { BrandMark } from './components/brand-mark'
-import { assistantTextPart, appendAssistantTextPart, chatMessageText, mergeFinalAssistantText, textPart, type ChatMessage } from './lib/chat-messages'
+import { assistantTextPart, appendAssistantTextPart, mergeFinalAssistantText, textPart, type ChatMessage } from './lib/chat-messages'
 import { sanitizeComposerInput } from './lib/composer-input-sanitize'
 import type { MobileCredentialStore } from './mobile-credential-store'
 import { createMobilePromptClient, type MobilePromptGateway } from './mobile-prompt-client'
-import { createMobileGatewayRestClient, type MobileGatewayRestConfig } from './mobile-gateway-rest'
+import { createMobileGatewayRestClient, type MobileGatewayRestClient, type MobileGatewayRestConfig } from './mobile-gateway-rest'
+import { createMobileRemoteLoginClient } from './mobile-remote-login'
 import { createMobileSessionClient, loadMobileSessionHistory, type MobileGatewayRequest, type MobileSessionListItem, type MobileSessionRest } from './mobile-session-client'
 import { createMobileToolActivityClient, type MobileToolActivity } from './mobile-tool-activity-client'
 import type { MobileGatewaySocketConfig } from './mobile-gateway-transport'
 import { parseMobileConnection, type MobileConnectionMode } from './mobile-connection'
+import { Codicon } from './components/ui/codicon'
+import { IpadSessionDetail } from './ipad-session-detail'
+import { IpadShell } from './ipad-shell'
 
 interface IpadHomeProps {
   connectGateway?: (config: MobileGatewaySocketConfig) => Promise<MobileGatewayRequest & MobilePromptGateway & { close(): void }>
-  createRestClient?: (config: MobileGatewayRestConfig) => MobileSessionRest
+  createRestClient?: (config: MobileGatewayRestConfig) => MobileGatewayRestClient
   credentialStore?: MobileCredentialStore
 }
 
@@ -49,6 +52,16 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [approval, setApproval] = useState<MobileApprovalRequest | null>(null)
   const [toolActivities, setToolActivities] = useState<MobileToolActivity[]>([])
+  const [view, setView] = useState<'list' | 'session'>('list')
+  const [sessionLoading, setSessionLoading] = useState(false)
+  const [remoteUsername, setRemoteUsername] = useState('')
+  const [remotePassword, setRemotePassword] = useState('')
+  const [remoteSigningIn, setRemoteSigningIn] = useState(false)
+  const [remotePasswordVisible, setRemotePasswordVisible] = useState(false)
+  const [validating, setValidating] = useState(false)
+  const [autoLogin, setAutoLogin] = useState(false)
+  // Guards the mount pass: auto-login must run once, not on every re-render.
+  const autoLoginAttempted = useRef(false)
 
   useEffect(() => {
     if (!gateway || !rest || !sessionId || !activeStoredSessionId) {
@@ -94,17 +107,52 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
     })
   }, [gateway, sessionId])
 
-  function validateConnection(event: FormEvent<HTMLFormElement>) {
+  /**
+   * Probe the endpoint for real.
+   *
+   * This used to only parse the address and then report success, so "validated" meant nothing more
+   * than "the URL is well-formed" while reading like a reachability check — a false positive that
+   * sent a person looking for the fault in the wrong place. It now contacts the gateway and names
+   * the failure it actually hit: unreachable, wrong port, not a Hermes gateway, or a rejected token.
+   */
+  async function validateConnection(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    setValidating(true)
     try {
-      parseMobileConnection(backendAddress, mode, connectionOptions)
-      setConnectionMessage(
+      const connection = parseMobileConnection(backendAddress, mode, connectionOptions)
+      const probe = createRestClient(
         mode === 'lan'
-          ? 'LAN endpoint validated. Token has not been saved.'
-          : 'Secure endpoint validated. Sign-in is not configured.'
+          ? { ...connection, ...connectionOptions, token: lanToken }
+          : { ...connection, ...connectionOptions }
       )
+
+      const status = await probe.get('/api/status')
+      if (!status.ok) {
+        throw new Error(`Gateway replied HTTP ${status.status}. Check the address and port.`)
+      }
+      const payload = await status.json() as { version?: unknown }
+      if (typeof payload?.version !== 'string') {
+        throw new Error('Reached that address, but it is not a Hermes gateway')
+      }
+
+      if (mode === 'lan') {
+        // /api/status is public, so on its own it proves reachability only; the token needs its
+        // own check or a wrong token would still report a healthy endpoint.
+        const authorized = await probe.get('/api/sessions?limit=1')
+        if (authorized.status === 401 || authorized.status === 403) {
+          throw new Error('The gateway is reachable, but it rejected the LAN token')
+        }
+        if (!authorized.ok) {
+          throw new Error(`The gateway answered HTTP ${authorized.status} for an authorized request`)
+        }
+        setConnectionMessage(`LAN gateway reachable (Hermes ${payload.version}) and the token was accepted.`)
+      } else {
+        setConnectionMessage(`Remote gateway reachable (Hermes ${payload.version}). Sign in to connect.`)
+      }
     } catch (error) {
-      setConnectionMessage(error instanceof Error ? error.message : 'Unable to validate backend URL')
+      setConnectionMessage(error instanceof Error ? error.message : 'Unable to reach the backend')
+    } finally {
+      setValidating(false)
     }
   }
 
@@ -125,16 +173,79 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
         throw new Error('Save a LAN token to secure device storage before connecting')
       }
       const connectedGateway = await connectGateway({ ...connection, ...connectionOptions, token })
+      const restClient = createRestClient({ ...connection, ...connectionOptions, token })
       setGateway(connectedGateway)
-      setRest(createRestClient({ ...connection, ...connectionOptions, token }))
+      setRest(restClient)
+      setView('list')
       setConnectionMessage('LAN gateway connected.')
+      // Load the list as soon as the gateway is up. A failure here is not a
+      // connection failure, so it must not overwrite the connected status.
+      void createMobileSessionClient(connectedGateway, restClient).list()
+        .then(setSessions)
+        .catch(() => {})
     } catch (error) {
       setConnectionMessage(error instanceof Error ? error.message : 'Unable to connect to LAN gateway')
     }
   }
 
+  /**
+   * Sign in to a remote gateway and connect.
+   *
+   * The credential never lands in our own storage: the gateway sets a session cookie and the
+   * native HTTP layer keeps it, so the password stays in component state and the cookie jar is
+   * the only thing persisted. The ticket is minted per attempt because it is single-use.
+   */
+  async function connectRemoteGateway(pending?: { baseUrl: string; password: string; username: string }) {
+    // The launch pass supplies the address too: it has just called setBackendAddress, and reading
+    // the state here would still see the previous (empty) value, which fails address parsing.
+    const username = pending?.username ?? remoteUsername
+    const password = pending?.password ?? remotePassword
+    const address = pending?.baseUrl ?? backendAddress
+    setRemoteSigningIn(true)
+    try {
+      const connection = parseMobileConnection(address, 'secure', connectionOptions)
+      const restClient = createRestClient({ ...connection, ...connectionOptions })
+      const login = createMobileRemoteLoginClient(restClient)
+
+      const providers = await login.listPasswordProviders()
+      const provider = providers[0]
+      if (!provider) {
+        throw new Error('This gateway does not offer username and password sign-in')
+      }
+
+      await login.signIn(provider.name, username, password)
+      const ticket = await login.mintWsTicket()
+      const connectedGateway = await connectGateway({ ...connection, ...connectionOptions, ticket })
+
+      // Only a person-initiated sign-in changes the stored preference. The auto-login pass must
+      // not, or an unchecked box would be silently re-armed by a successful unattended launch.
+      if (!pending) {
+        if (autoLogin) {
+          await credentialStore.saveAutoLogin({ baseUrl: connection.baseUrl, password, username })
+        } else {
+          await credentialStore.clearAutoLogin()
+        }
+      }
+
+      setGateway(connectedGateway)
+      setRest(restClient)
+      setView('list')
+      setConnectionMessage('Remote gateway connected.')
+      // A list-load failure is not a connection failure, so it must not overwrite the
+      // connected status.
+      void createMobileSessionClient(connectedGateway, restClient).list()
+        .then(setSessions)
+        .catch(() => {})
+    } catch (error) {
+      setConnectionMessage(error instanceof Error ? error.message : 'Unable to connect to the remote gateway')
+    } finally {
+      setRemoteSigningIn(false)
+    }
+  }
+
   function resetGatewayState(message: string) {
     activeSessionRef.current = { runtimeSessionId: null, storedSessionId: null }
+    setView('list')
     setGateway(null)
     setRest(null)
     setSessions([])
@@ -152,6 +263,27 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
     gateway?.close()
     resetGatewayState('Gateway disconnected.')
   }
+
+  useEffect(() => {
+    if (autoLoginAttempted.current) {
+      return
+    }
+    autoLoginAttempted.current = true
+    void (async () => {
+      const stored = await credentialStore.readAutoLogin()
+      if (!stored) {
+        return
+      }
+      setMode('secure')
+      setBackendAddress(stored.baseUrl)
+      setRemoteUsername(stored.username)
+      setRemotePassword(stored.password)
+      setAutoLogin(true)
+      await connectRemoteGateway(stored)
+    })()
+    // Mount-only: this is the auto-login pass, not a reaction to a state change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     if (!gateway?.onState) {
@@ -179,6 +311,10 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
     if (!gateway || !rest) {
       return
     }
+    // Enter the detail view immediately so the tap has a visible effect; the
+    // transcript arrives while the resume request is in flight.
+    setView('session')
+    setSessionLoading(true)
     try {
       const session = await createMobileSessionClient(gateway, rest).resume(storedSessionId)
       activeSessionRef.current = { runtimeSessionId: session.runtimeSessionId, storedSessionId: session.storedSessionId }
@@ -187,7 +323,10 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
       setMessages(session.messages)
       setConnectionMessage(`Session ${session.storedSessionId} resumed.`)
     } catch (error) {
+      setView('list')
       setConnectionMessage(error instanceof Error ? error.message : 'Unable to resume session')
+    } finally {
+      setSessionLoading(false)
     }
   }
 
@@ -195,6 +334,8 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
     if (!gateway) {
       return
     }
+    setView('session')
+    setSessionLoading(true)
     try {
       const session = await createMobileSessionClient(gateway).create('New mobile chat')
       setSessionId(session.runtimeSessionId)
@@ -205,11 +346,14 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
       if (storedSessionId) {
         setSessions(current => current.some(item => item.id === storedSessionId)
           ? current
-          : [{ id: storedSessionId, preview: null, title: 'New mobile chat' }, ...current])
+          : [{ id: storedSessionId, preview: null, title: 'New mobile chat', updatedAt: Date.now() / 1000 }, ...current])
       }
       setConnectionMessage(`Session ${session.runtimeSessionId} created.`)
     } catch (error) {
+      setView('list')
       setConnectionMessage(error instanceof Error ? error.message : 'Unable to create session')
+    } finally {
+      setSessionLoading(false)
     }
   }
 
@@ -262,35 +406,56 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
     }
   }
 
+  // Title of the session shown in the inset; null while no session is open.
+  const activeTitle = activeStoredSessionId
+    ? sessions.find(session => session.id === activeStoredSessionId)?.title || 'Untitled session'
+    : null
+
+  // Connected: the desktop-shaped layout — collapsible session sidebar plus the open session.
+  if (gateway) {
+    return (
+      <main className="min-h-dvh bg-[var(--ui-bg-primary)] text-[color:var(--ui-text-primary)]">
+        <IpadShell
+          activeSessionId={activeStoredSessionId}
+          activeTitle={activeTitle}
+          connectionMessage={connectionMessage}
+          onCreate={() => void startNewSession()}
+          onDisconnect={disconnectGateway}
+          onOpen={storedSessionId => void openStoredSession(storedSessionId)}
+          onRefresh={() => void refreshSessions()}
+          sessions={sessions}
+        >
+          {view === 'session' && sessionLoading && <p className="py-10 text-sm text-[color:var(--ui-text-tertiary)]" role="status">Loading session…</p>}
+
+          {view === 'session' && !sessionLoading && <IpadSessionDetail
+            approval={approval}
+            draft={draft}
+            messages={messages}
+            onDraftChange={setDraft}
+            onFilesChange={setPendingFiles}
+            onRespondToApproval={choice => void respondToApproval(choice)}
+            onSubmit={submitMessage}
+            pendingFiles={pendingFiles}
+            sessionId={sessionId}
+            toolActivities={toolActivities}
+          />}
+
+          {view !== 'session' && <p className="py-10 text-sm text-[color:var(--ui-text-tertiary)]">Select a session, or start a new one.</p>}
+        </IpadShell>
+      </main>
+    )
+  }
+
   return (
-    <main className="min-h-dvh overflow-x-hidden bg-[var(--ui-bg-primary)] px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))] text-[var(--ui-text-primary)]">
-      <div className="mx-auto flex min-h-[calc(100dvh-3rem)] max-w-3xl flex-col">
-        <header className="flex items-center gap-3 border-b border-(--ui-stroke-tertiary) pb-5">
-          <BrandMark className="size-11 rounded-xl" />
-          <div>
-            <h1 className="font-['Collapse'] text-2xl font-bold tracking-tight">Hermes</h1>
-            <p className="text-sm text-[var(--ui-text-secondary)]">Your remote workspace</p>
-          </div>
-        </header>
+    <main className="min-h-dvh overflow-x-hidden bg-[var(--ui-bg-primary)] px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))] text-[color:var(--ui-text-primary)]">
+      <div className="mx-auto flex min-h-[calc(100dvh-3rem)] max-w-3xl flex-col justify-center">
+        {emulatorLoopbackEnabled && <p className="mt-6 w-fit rounded-lg border border-amber-500/50 px-3 py-2 font-mono text-xs text-amber-700 dark:text-amber-300">
+          EMULATOR-ONLY LOOPBACK TUNNEL · Not valid for physical LAN devices.
+        </p>}
 
-        <section className="flex flex-1 flex-col justify-center py-12" aria-labelledby="welcome-title">
-          <p className="mb-3 font-mono text-xs tracking-[0.18em] text-[var(--ui-text-tertiary)]">MOBILE CLIENT · PREVIEW</p>
-          <h2 className="max-w-xl text-4xl font-semibold tracking-[-0.04em] sm:text-5xl" id="welcome-title">
-            Ready when your workspace is.
-          </h2>
-          <p className="mt-5 max-w-lg text-base leading-7 text-[var(--ui-text-secondary)]">
-            This first build keeps the Hermes experience on your mobile device while your agent stays on another computer.
-          </p>
-          {emulatorLoopbackEnabled && <p className="mt-4 w-fit rounded-lg border border-amber-500/50 px-3 py-2 font-mono text-xs text-amber-700 dark:text-amber-300">
-            EMULATOR-ONLY LOOPBACK TUNNEL · Not valid for physical LAN devices.
-          </p>}
-          <div className="mt-8 inline-flex w-fit items-center gap-2 rounded-full bg-[var(--ui-bg-quaternary)] px-3 py-2 text-sm text-[var(--ui-text-secondary)]">
-            <span aria-hidden="true" className={`size-2 rounded-full ${gateway ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-            {gateway ? 'LAN gateway connected.' : 'Backend not connected'}
-          </div>
-        </section>
+        <h1 className="mb-8 text-center font-['Collapse'] text-3xl font-bold tracking-tight">Hermes</h1>
 
-        <form className="border-t border-(--ui-stroke-tertiary) pt-4" onSubmit={validateConnection}>
+        <form className="pt-4" onSubmit={event => void validateConnection(event)}>
           <div className="grid gap-3 rounded-2xl bg-[var(--ui-bg-quaternary)] p-4">
             <label className="grid gap-1 text-sm">
               <span>Connection mode</span>
@@ -312,13 +477,13 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
                 <span>LAN session token</span>
                 <input aria-label="LAN session token" autoComplete="off" className="rounded-lg bg-[var(--ui-bg-primary)] p-2" onChange={event => setLanToken(event.target.value)} type="password" value={lanToken} />
               </label>
-              <label className="flex gap-2 text-sm text-[var(--ui-text-secondary)]">
+              <label className="flex gap-2 text-sm text-[color:var(--ui-text-secondary)]">
                 <input aria-label="I understand this LAN connection uses unencrypted HTTP and WS" checked={lanRiskConfirmed} onChange={event => setLanRiskConfirmed(event.target.checked)} type="checkbox" />
                 I understand this LAN connection uses unencrypted HTTP and WS
               </label>
             </>}
-            <button className="w-fit rounded-xl bg-[var(--ui-text-primary)] px-4 py-2 text-sm font-medium text-[var(--ui-bg-primary)] disabled:opacity-40" disabled={mode === 'lan' && (!lanRiskConfirmed || !lanToken)} type="submit">
-              Validate connection
+            <button className="w-fit rounded-xl bg-[var(--ui-text-primary)] px-5 py-2 text-sm font-medium text-background disabled:opacity-40" disabled={validating || (mode === 'lan' && (!lanRiskConfirmed || !lanToken))} type="submit">
+              {validating ? 'Checking...' : 'Validate'}
             </button>
             {mode === 'lan' && <button className="w-fit rounded-xl border border-(--ui-stroke-tertiary) px-4 py-2 text-sm font-medium disabled:opacity-40" disabled={!lanRiskConfirmed || !lanToken} onClick={() => void saveLanToken()} type="button">
               Save LAN token
@@ -326,58 +491,32 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
             {mode === 'lan' && <button className="w-fit rounded-xl border border-(--ui-stroke-tertiary) px-4 py-2 text-sm font-medium disabled:opacity-40" disabled={Boolean(gateway) || !lanRiskConfirmed || !lanToken} onClick={() => void connectLanGateway()} type="button">
               Connect LAN gateway
             </button>}
-            {gateway && <button className="w-fit rounded-xl border border-(--ui-stroke-tertiary) px-4 py-2 text-sm font-medium" onClick={disconnectGateway} type="button">
-              Disconnect gateway
-            </button>}
-            {gateway && <button className="w-fit rounded-xl border border-(--ui-stroke-tertiary) px-4 py-2 text-sm font-medium" onClick={() => void refreshSessions()} type="button">
-              Refresh sessions
-            </button>}
-            {gateway && <button className="w-fit rounded-xl border border-(--ui-stroke-tertiary) px-4 py-2 text-sm font-medium" onClick={() => void startNewSession()} type="button">
-              Start new session
-            </button>}
-            {connectionMessage && <p role="status" className="text-sm text-[var(--ui-text-secondary)]">{connectionMessage}</p>}
+            {mode === 'secure' && <>
+              <label className="grid gap-1 text-sm">
+                <span>Username</span>
+                <input aria-label="Remote username" autoCapitalize="none" autoComplete="username" className="rounded-lg bg-[var(--ui-bg-primary)] p-2" onChange={event => setRemoteUsername(event.target.value)} value={remoteUsername} />
+              </label>
+              <label className="grid gap-1 text-sm">
+                <span>Password</span>
+                <span className="relative flex items-center">
+                  <input aria-label="Remote password" autoComplete="current-password" className="w-full rounded-lg bg-[var(--ui-bg-primary)] p-2 pr-11" onChange={event => setRemotePassword(event.target.value)} type={remotePasswordVisible ? 'text' : 'password'} value={remotePassword} />
+                  <button aria-label={remotePasswordVisible ? 'Hide password' : 'Show password'} aria-pressed={remotePasswordVisible} className="absolute right-1 rounded-md p-2 text-[color:var(--ui-text-tertiary)]" onClick={() => setRemotePasswordVisible(current => !current)} type="button">
+                    <Codicon name={remotePasswordVisible ? 'eye-closed' : 'eye'} size="1rem" />
+                  </button>
+                </span>
+              </label>
+              <label className="flex gap-2 text-sm text-[color:var(--ui-text-secondary)]">
+                <input aria-label="Sign in automatically next time" checked={autoLogin} onChange={event => setAutoLogin(event.target.checked)} type="checkbox" />
+                Sign in automatically next time
+              </label>
+              <button className="w-fit rounded-xl bg-[var(--ui-text-primary)] px-5 py-2 text-sm font-medium text-background disabled:opacity-40" disabled={Boolean(gateway) || remoteSigningIn || !remoteUsername || !remotePassword} onClick={() => void connectRemoteGateway()} type="button">
+                {remoteSigningIn ? 'Signing in...' : 'Sign in'}
+              </button>
+            </>}
+            {connectionMessage && <p role="status" className="text-sm text-[color:var(--ui-text-secondary)]">{connectionMessage}</p>}
           </div>
         </form>
 
-        {sessions.length > 0 && <section aria-label="Saved sessions" className="flex flex-col gap-2 py-4">
-          {sessions.map(session => <button aria-label={`Open ${session.title || 'Untitled session'}`} className="rounded-xl border border-(--ui-stroke-tertiary) p-3 text-left" key={session.id} onClick={() => void openStoredSession(session.id)} type="button">
-            <p className="font-medium">{session.title || 'Untitled session'}</p>
-            {session.preview && <p className="mt-1 text-sm text-[var(--ui-text-secondary)]">{session.preview}</p>}
-          </button>)}
-        </section>}
-
-        {approval && <section aria-label="Approval request" className="rounded-xl border border-amber-500/50 p-3">
-          <p className="font-medium">Approval required</p>
-          {approval.description && <p className="mt-1 text-sm">{approval.description}</p>}
-          {approval.command && <pre className="mt-2 overflow-x-auto text-sm">{approval.command}</pre>}
-          <div className="mt-3 flex gap-2">
-            <button onClick={() => void respondToApproval('once')} type="button">Allow once</button>
-            <button onClick={() => void respondToApproval('deny')} type="button">Deny</button>
-          </div>
-        </section>}
-
-        {toolActivities.length > 0 && <section aria-label="Tool activity" className="flex flex-col gap-2 py-4">
-          <p className="font-mono text-xs tracking-[0.14em] text-[var(--ui-text-tertiary)]">TOOL ACTIVITY</p>
-          {toolActivities.map(activity => <p className="rounded-xl border border-(--ui-stroke-tertiary) px-3 py-2 text-sm" key={activity.id}>{activity.name} · {activity.status}</p>)}
-        </section>}
-
-        {messages.length > 0 && <section aria-label="Conversation" className="flex flex-1 flex-col gap-3 py-6">
-          {messages.map(message => <article className={message.role === 'user' ? 'self-end rounded-2xl bg-[var(--ui-bg-quaternary)] p-3' : 'self-start rounded-2xl border border-(--ui-stroke-tertiary) p-3'} key={message.id}>
-            {chatMessageText(message)}
-          </article>)}
-        </section>}
-
-        <form className="border-t border-(--ui-stroke-tertiary) pt-4" onSubmit={submitMessage}>
-          {pendingFiles.length > 0 && <div aria-label="Pending attachments" className="mb-2 flex flex-wrap gap-2">
-            {pendingFiles.map((file, index) => <button className="rounded-lg border border-(--ui-stroke-tertiary) px-2 py-1 text-sm" key={`${file.name}-${index}`} onClick={() => setPendingFiles(current => current.filter((_, itemIndex) => itemIndex !== index))} type="button">Remove {file.name}</button>)}
-          </div>}
-          <input aria-label="Attach file" className="sr-only" disabled={!sessionId} onChange={event => setPendingFiles(current => [...current, ...Array.from(event.target.files ?? [])])} type="file" />
-          <label className="sr-only" htmlFor="ipad-message">Message composer</label>
-          <div className="flex items-end gap-3 rounded-2xl bg-[var(--ui-bg-quaternary)] p-3">
-            <textarea aria-label="Message composer" className="min-h-14 flex-1 resize-none bg-transparent px-1 py-2 text-base outline-none placeholder:text-[var(--ui-text-tertiary)]" disabled={!sessionId} id="ipad-message" onChange={event => setDraft(event.target.value)} placeholder={sessionId ? 'Message Hermes' : 'Create a session to start a conversation'} rows={2} value={draft} />
-            <button aria-label="Send message" className="shrink-0 rounded-xl bg-[var(--ui-text-primary)] px-4 py-2 text-sm font-medium text-[var(--ui-bg-primary)] disabled:opacity-40" disabled={!sessionId || (!draft.trim() && pendingFiles.length === 0)} type="submit">Send</button>
-          </div>
-        </form>
       </div>
     </main>
   )

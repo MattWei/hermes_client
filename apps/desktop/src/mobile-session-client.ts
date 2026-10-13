@@ -18,6 +18,9 @@ export interface MobileSessionListItem {
   id: string
   preview: null | string
   title: null | string
+  /** Seconds since the epoch: `last_active` falling back to `started_at`; null when the backend
+   *  omits both. Drives the sidebar's date grouping. */
+  updatedAt: number | null
 }
 
 interface SessionCreateResponse {
@@ -110,14 +113,16 @@ export function createMobileSessionClient(gateway: MobileGatewayRequest, rest?: 
         throw new Error('Hermes returned an invalid session list')
       }
       return body.sessions.flatMap(item => {
-        const session = item as { id?: unknown, preview?: unknown, title?: unknown }
+        const session = item as { id?: unknown, last_active?: unknown, preview?: unknown, started_at?: unknown, title?: unknown }
         if (typeof session.id !== 'string' || !session.id) {
           return []
         }
+        const updatedAt = [session.last_active, session.started_at].find(value => typeof value === 'number' && Number.isFinite(value))
         return [{
           id: session.id,
           preview: typeof session.preview === 'string' ? session.preview : null,
-          title: typeof session.title === 'string' ? session.title : null
+          title: typeof session.title === 'string' ? session.title : null,
+          updatedAt: typeof updatedAt === 'number' ? updatedAt : null
         }]
       })
     }

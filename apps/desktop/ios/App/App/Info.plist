@@ -24,6 +24,14 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Take a photo to attach it to your Hermes conversation.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Record a video to attach it to your Hermes conversation.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Select a photo or video to attach it to your Hermes conversation.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Connect to your Hermes agent backend running on your local network.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

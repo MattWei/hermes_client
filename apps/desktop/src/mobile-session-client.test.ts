@@ -37,9 +37,26 @@ describe('createMobileSessionClient', () => {
     const client = createMobileSessionClient({ request: vi.fn() }, { get })
 
     await expect(client.list()).resolves.toEqual([
-      { id: 'stored-1', preview: 'Latest message', title: 'Existing chat' }
+      { id: 'stored-1', preview: 'Latest message', title: 'Existing chat', updatedAt: null }
     ])
     expect(get).toHaveBeenCalledWith('/api/sessions?limit=40&offset=0&min_messages=0&archived=exclude&order=recent')
+  })
+
+  it('carries the recency timestamp the sidebar groups by, preferring last_active', async () => {
+    const get = vi.fn(async () => new Response(JSON.stringify({
+      sessions: [
+        { id: 'both', last_active: 2000, preview: null, started_at: 1000, title: 'Both' },
+        { id: 'started-only', preview: null, started_at: 3000, title: 'Started only' },
+        { id: 'neither', preview: null, title: 'Neither' }
+      ]
+    })))
+    const client = createMobileSessionClient({ request: vi.fn() }, { get })
+
+    await expect(client.list()).resolves.toEqual([
+      { id: 'both', preview: null, title: 'Both', updatedAt: 2000 },
+      { id: 'started-only', preview: null, title: 'Started only', updatedAt: 3000 },
+      { id: 'neither', preview: null, title: 'Neither', updatedAt: null }
+    ])
   })
 
   it('rejects an invalid session-list response', async () => {

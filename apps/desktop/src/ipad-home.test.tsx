@@ -2,33 +2,47 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { IpadHome } from './ipad-home'
+import { deferred } from './test/deferred'
 
 describe('IpadHome', () => {
   it('shows the offline Hermes home without starting a backend', () => {
     render(<IpadHome />)
 
-    expect(screen.getByRole('heading', { name: 'Hermes' })).toBeTruthy()
-    expect(screen.getByText('MOBILE CLIENT · PREVIEW')).toBeTruthy()
-    expect(screen.getByText('Backend not connected')).toBeTruthy()
-    expect(screen.getByRole('textbox', { name: 'Message composer' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Send message' }).hasAttribute('disabled')).toBe(true)
+    // The disconnected page is the connection form only: no brand block, no promo copy, no
+    // status chip — the form carries its own status line.
+    expect(screen.getByRole('combobox', { name: 'Connection mode' })).toBeTruthy()
+    expect(screen.getByRole('textbox', { name: 'Backend address' })).toBeTruthy()
+    expect(screen.queryByText('Backend not connected')).toBeNull()
+    // The disconnected page deliberately carries no composer: it could only render disabled
+    // beneath a "Create a session to start a conversation" placeholder, while the control that
+    // creates a session lives in the sidebar that appears *after* connecting.
+    expect(screen.queryByRole('textbox', { name: 'Message composer' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Send message' })).toBeNull()
   })
 
-  it('requires an explicit risk confirmation for a validated LAN connection', () => {
-    render(<IpadHome />)
+  it('requires an explicit risk confirmation before a LAN probe is allowed', async () => {
+    const get = vi.fn(async (path: string) => {
+      if (path === '/api/status') {
+        return new Response(JSON.stringify({ version: '1.2.3' }))
+      }
+      return new Response(JSON.stringify({ sessions: [] }))
+    })
+    render(<IpadHome createRestClient={vi.fn(() => ({ get, post: vi.fn() }))} />)
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'http://10.112.141.190:9119' } })
     fireEvent.change(screen.getByLabelText('LAN session token'), { target: { value: 'not-persisted' } })
 
-    const validate = screen.getByRole('button', { name: 'Validate connection' })
+    const validate = screen.getByRole('button', { name: 'Validate' })
     expect(validate.hasAttribute('disabled')).toBe(true)
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'I understand this LAN connection uses unencrypted HTTP and WS' }))
     expect(validate.hasAttribute('disabled')).toBe(false)
 
     fireEvent.click(validate)
-    expect(screen.getByText('LAN endpoint validated. Token has not been saved.')).toBeTruthy()
+    await waitFor(() => expect(screen.getByText(/LAN gateway reachable \(Hermes 1\.2\.3\)/)).toBeTruthy())
+    // the probe must actually reach the gateway, not just parse the address
+    expect(get).toHaveBeenCalledWith('/api/status')
   })
 
   it('rejects a hostname in LAN mode', () => {
@@ -38,7 +52,7 @@ describe('IpadHome', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'http://hermes-dashboard.local' } })
     fireEvent.change(screen.getByLabelText('LAN session token'), { target: { value: 'not-persisted' } })
     fireEvent.click(screen.getByRole('checkbox', { name: 'I understand this LAN connection uses unencrypted HTTP and WS' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Validate connection' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Validate' }))
 
     expect(screen.getByText('LAN connections require an RFC1918 IPv4 address')).toBeTruthy()
   })
@@ -47,9 +61,12 @@ describe('IpadHome', () => {
     const saveLanSessionToken = vi.fn(async () => undefined)
     render(<IpadHome credentialStore={{
       clear: vi.fn(),
+      clearAutoLogin: vi.fn(),
       read: vi.fn(),
+      readAutoLogin: vi.fn(async () => null),
       readLanSessionToken: vi.fn(),
       save: vi.fn(),
+      saveAutoLogin: vi.fn(),
       saveLanSessionToken
     }} />)
 
@@ -67,7 +84,7 @@ describe('IpadHome', () => {
     const readLanSessionToken = vi.fn(async () => 'stored-lan-token')
     const connectGateway = vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request: vi.fn() }))
     render(<IpadHome credentialStore={{
-      clear: vi.fn(), read: vi.fn(), readLanSessionToken, save: vi.fn(), saveLanSessionToken: vi.fn()
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken, save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
     }} connectGateway={connectGateway} />)
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
@@ -80,15 +97,15 @@ describe('IpadHome', () => {
       baseUrl: 'http://10.10.10.10:9119', mode: 'lan', token: 'stored-lan-token'
     }))
     expect(readLanSessionToken).toHaveBeenCalledOnce()
-    expect(screen.getAllByText('LAN gateway connected.')).toHaveLength(2)
+    expect(screen.getAllByText('LAN gateway connected.')).toHaveLength(1)
     expect(screen.queryByText('Backend not connected')).toBeNull()
     expect(screen.getByRole('button', { name: 'Start new session' })).toBeTruthy()
   })
 
-  it('disconnects the active gateway and returns to the offline composer state', async () => {
+  it('disconnects the active gateway and returns to the offline state', async () => {
     const close = vi.fn()
     render(<IpadHome credentialStore={{
-      clear: vi.fn(), read: vi.fn(), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveLanSessionToken: vi.fn()
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
     }} connectGateway={vi.fn(async () => ({ close, on: vi.fn(() => vi.fn()), request: vi.fn() }))} />)
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
@@ -97,20 +114,23 @@ describe('IpadHome', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: 'I understand this LAN connection uses unencrypted HTTP and WS' }))
     fireEvent.click(screen.getByRole('button', { name: 'Connect LAN gateway' }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'Disconnect gateway' })).toBeTruthy())
-    expect(screen.getByRole('button', { name: 'Connect LAN gateway' }).hasAttribute('disabled')).toBe(true)
+    // While connected the connection form is put away, not merely disabled.
+    expect(screen.queryByRole('button', { name: 'Connect LAN gateway' })).toBeNull()
+    expect(screen.queryByRole('combobox', { name: 'Connection mode' })).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Disconnect gateway' }))
 
     expect(close).toHaveBeenCalledOnce()
     expect(screen.getByRole('button', { name: 'Connect LAN gateway' }).hasAttribute('disabled')).toBe(false)
-    expect(screen.getByText('Backend not connected')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Send message' }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByText('Gateway disconnected.')).toBeTruthy()
+    // No composer on the disconnected page, so there is no Send button to disable.
+    expect(screen.queryByRole('button', { name: 'Send message' })).toBeNull()
   })
 
   it('returns to the offline state when the gateway closes remotely', async () => {
     let onState: ((state: string) => void) | undefined
     render(<IpadHome credentialStore={{
-      clear: vi.fn(), read: vi.fn(), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveLanSessionToken: vi.fn()
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
     }} connectGateway={vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), onState: (handler: (state: string) => void) => { onState = handler; handler('open'); return vi.fn() }, request: vi.fn() }))} />)
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
@@ -122,19 +142,21 @@ describe('IpadHome', () => {
 
     act(() => onState?.('closed'))
 
-    expect(screen.getByText('Backend not connected')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Send message' }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByText('Gateway connection lost.')).toBeTruthy()
+    // No composer on the disconnected page, so there is no Send button to disable.
+    expect(screen.queryByRole('button', { name: 'Send message' })).toBeNull()
   })
 
-  it('loads the backend session list only after the user requests it', async () => {
+  it('loads the backend session list automatically once the gateway connects', async () => {
     const connectGateway = vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request: vi.fn() }))
     const createRestClient = vi.fn(() => ({
       get: vi.fn(async () => new Response(JSON.stringify({
         sessions: [{ id: 'stored-1', preview: 'Existing preview', title: 'Existing chat' }]
-      })))
+      }))),
+      post: vi.fn()
     }))
     render(<IpadHome credentialStore={{
-      clear: vi.fn(), read: vi.fn(), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveLanSessionToken: vi.fn()
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
     }} connectGateway={connectGateway} createRestClient={createRestClient} />)
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
@@ -142,11 +164,12 @@ describe('IpadHome', () => {
     fireEvent.change(screen.getByLabelText('LAN session token'), { target: { value: 'token-to-save-first' } })
     fireEvent.click(screen.getByRole('checkbox', { name: 'I understand this LAN connection uses unencrypted HTTP and WS' }))
     fireEvent.click(screen.getByRole('button', { name: 'Connect LAN gateway' }))
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh sessions' })).toBeTruthy())
-
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh sessions' }))
+    // No manual refresh: the list arrives because the gateway connected.
     await waitFor(() => expect(screen.getByText('Existing chat')).toBeTruthy())
-    expect(screen.getByText('Existing preview')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Refresh sessions' })).toBeTruthy()
+    // the session actions live in the sidebar; the inset header is the title bar
+    expect(screen.getByRole('button', { name: 'Start new session' })).toBeTruthy()
+    expect(screen.getByText('No session selected')).toBeTruthy()
   })
 
   it('resumes a selected stored session and renders its Desktop-hydrated history', async () => {
@@ -165,16 +188,14 @@ describe('IpadHome', () => {
         session_id: 'stored-2'
       })))
     render(<IpadHome credentialStore={{
-      clear: vi.fn(), read: vi.fn(), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveLanSessionToken: vi.fn()
-    }} connectGateway={vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request }))} createRestClient={vi.fn(() => ({ get }))} />)
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request }))} createRestClient={vi.fn(() => ({ get, post: vi.fn() }))} />)
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'http://10.10.10.10:9119' } })
     fireEvent.change(screen.getByLabelText('LAN session token'), { target: { value: 'token-to-save-first' } })
     fireEvent.click(screen.getByRole('checkbox', { name: 'I understand this LAN connection uses unencrypted HTTP and WS' }))
     fireEvent.click(screen.getByRole('button', { name: 'Connect LAN gateway' }))
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh sessions' })).toBeTruthy())
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh sessions' }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'Open Existing chat' })).toBeTruthy())
 
     fireEvent.click(screen.getByRole('button', { name: 'Open Existing chat' }))
@@ -203,8 +224,8 @@ describe('IpadHome', () => {
       messages: [{ content: 'Recovered history', role: 'assistant', timestamp: 3 }]
     })))
     render(<IpadHome credentialStore={{
-      clear: vi.fn(), read: vi.fn(), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveLanSessionToken: vi.fn()
-    }} connectGateway={connectGateway} createRestClient={vi.fn(() => ({ get }))} />)
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={connectGateway} createRestClient={vi.fn(() => ({ get, post: vi.fn() }))} />)
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'http://10.10.10.10:9119' } })
@@ -215,7 +236,8 @@ describe('IpadHome', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Start new session' }))
     await waitFor(() => expect(screen.getByText('Session runtime-42 created.')).toBeTruthy())
-    expect(screen.getByRole('button', { name: 'Open New mobile chat' })).toBeTruthy()
+    // A freshly created session opens straight into the inset.
+    expect(screen.queryByText('Select a session, or start a new one.')).toBeNull()
 
     const composer = screen.getByRole('textbox', { name: 'Message composer' })
     expect(composer.hasAttribute('disabled')).toBe(false)
@@ -250,4 +272,364 @@ describe('IpadHome', () => {
     act(() => handlers.get('tool.complete')?.({ session_id: 'runtime-42', payload: { name: 'terminal', tool_id: 'tool-1' } }))
     expect(screen.getByText('terminal · complete')).toBeTruthy()
   })
+
+  it('searches the session list and splits it into date groups', async () => {
+    const now = Date.now() / 1000
+    const longAgo = now - 60 * 60 * 24 * 45
+    const createRestClient = vi.fn(() => ({
+      get: vi.fn(async () => new Response(JSON.stringify({
+        sessions: [
+          { id: 'stored-new', last_active: now, preview: 'Recent preview', title: 'Recent chat' },
+          { id: 'stored-old', last_active: longAgo, preview: 'Old preview', title: 'Ancient chat' }
+        ]
+      }))),
+      post: vi.fn()
+    }))
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request: vi.fn() }))} createRestClient={createRestClient} />)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'http://10.10.10.10:9119' } })
+    fireEvent.change(screen.getByLabelText('LAN session token'), { target: { value: 'token-to-save-first' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I understand this LAN connection uses unencrypted HTTP and WS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Connect LAN gateway' }))
+
+    await waitFor(() => expect(screen.getByText('Recent chat')).toBeTruthy())
+    expect(screen.getByText('Ancient chat')).toBeTruthy()
+
+    // two very different ages belong to different calendar buckets, so the list gains headings
+    const headingsBefore = document.querySelectorAll('[data-slot="sidebar-group-label"]').length
+
+    // the search box narrows the list to the non-matching session being filtered out
+    fireEvent.change(screen.getByLabelText('Search sessions'), { target: { value: 'ancient' } })
+    await waitFor(() => expect(screen.queryByText('Recent chat')).toBeNull())
+    expect(screen.getByText('Ancient chat')).toBeTruthy()
+
+    // clearing restores both rows
+    fireEvent.change(screen.getByLabelText('Search sessions'), { target: { value: '' } })
+    await waitFor(() => expect(screen.getByText('Recent chat')).toBeTruthy())
+    expect(headingsBefore).toBeGreaterThanOrEqual(1)
+  })
+
+  it('keeps the session list in the sidebar while a session is open', async () => {
+    const request = vi.fn(async (method: string) => method === 'session.resume'
+      ? { session_id: 'runtime-2', session_key: 'stored-2' }
+      : { status: 'accepted' })
+    const get = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        sessions: [{ id: 'stored-2', preview: 'Existing preview', title: 'Existing chat' }]
+      })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        messages: [{ content: 'Earlier reply', role: 'assistant', timestamp: 1 }],
+        session_id: 'stored-2'
+      })))
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request }))} createRestClient={vi.fn(() => ({ get, post: vi.fn() }))} />)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'http://10.10.10.10:9119' } })
+    fireEvent.change(screen.getByLabelText('LAN session token'), { target: { value: 'token-to-save-first' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I understand this LAN connection uses unencrypted HTTP and WS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Connect LAN gateway' }))
+
+    // the session list is the sidebar
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open Existing chat' })).toBeTruthy())
+    expect(screen.getByRole('button', { name: 'Refresh sessions' })).toBeTruthy()
+
+    // opening a session renders it in the inset
+    fireEvent.click(screen.getByRole('button', { name: 'Open Existing chat' }))
+    await waitFor(() => expect(screen.getByText('Earlier reply')).toBeTruthy())
+
+    // the list stays put — no back navigation needed, and the gateway survives
+    expect(screen.getByRole('button', { name: 'Open Existing chat' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Disconnect gateway' })).toBeTruthy()
+    expect(screen.queryByText('Backend not connected')).toBeNull()
+  })
+
+  it('shows a loading state while a session opens, then the transcript', async () => {
+    const resumeGate = deferred()
+    const request = vi.fn(async (method: string) => {
+      if (method === 'session.resume') {
+        await resumeGate.promise
+        return { session_id: 'runtime-3', session_key: 'stored-3' }
+      }
+      return { status: 'accepted' }
+    })
+    const get = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        sessions: [{ id: 'stored-3', preview: 'Existing preview', title: 'Existing chat' }]
+      })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        messages: [{ content: 'Earlier reply', role: 'assistant', timestamp: 1 }],
+        session_id: 'stored-3'
+      })))
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request }))} createRestClient={vi.fn(() => ({ get, post: vi.fn() }))} />)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'http://10.10.10.10:9119' } })
+    fireEvent.change(screen.getByLabelText('LAN session token'), { target: { value: 'token-to-save-first' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I understand this LAN connection uses unencrypted HTTP and WS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Connect LAN gateway' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open Existing chat' })).toBeTruthy())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Existing chat' }))
+
+    // the tap has an immediate, visible effect while the resume is in flight
+    expect(screen.getByRole('status').textContent).toBe('Loading session…')
+
+    resumeGate.resolve()
+    await waitFor(() => expect(screen.getByText('Earlier reply')).toBeTruthy())
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+  it('signs in to a remote gateway and connects with the minted ticket', async () => {
+    const post = vi.fn(async (path: string) => {
+      if (path === '/auth/password-login') {
+        return new Response(JSON.stringify({ next: '/', ok: true }))
+      }
+      if (path === '/api/auth/ws-ticket') {
+        return new Response(JSON.stringify({ ticket: 'one-shot', ttl_seconds: 30 }))
+      }
+      throw new Error(`unexpected POST ${path}`)
+    })
+    const get = vi.fn(async (path: string) => {
+      if (path === '/api/auth/providers') {
+        return new Response(JSON.stringify({
+          providers: [
+            { display_name: 'Username & Password', name: 'basic', supports_password: true },
+            { display_name: 'Nous Portal', name: 'nous', supports_password: false }
+          ]
+        }))
+      }
+      return new Response(JSON.stringify({ sessions: [] }))
+    })
+    const createRestClient = vi.fn(() => ({ get, post }))
+    const connectGateway = vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request: vi.fn() }))
+
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={connectGateway} createRestClient={createRestClient} />)
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'https://gateway.example.test' } })
+    fireEvent.change(screen.getByLabelText('Remote username'), { target: { value: 'alice' } })
+    fireEvent.change(screen.getByLabelText('Remote password'), { target: { value: 'secret' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+
+    await waitFor(() => expect(screen.getByText('Remote gateway connected.')).toBeTruthy())
+    // the password provider wins even though another provider is listed first-and-excluded
+    expect(post).toHaveBeenCalledWith('/auth/password-login', {
+      password: 'secret',
+      provider: 'basic',
+      username: 'alice'
+    })
+    // the ticket is what makes the socket reachable; the URL alone would be refused
+    expect(connectGateway).toHaveBeenCalledWith(expect.objectContaining({
+      baseUrl: 'https://gateway.example.test',
+      mode: 'secure',
+      ticket: 'one-shot'
+    }))
+    expect(screen.queryByLabelText('Remote username')).toBeNull()
+  })
+
+  it('reports a rejected sign-in without connecting', async () => {
+    const post = vi.fn(async (path: string) => {
+      if (path === '/auth/password-login') {
+        return new Response(JSON.stringify({ detail: 'Invalid credentials' }), { status: 401 })
+      }
+      throw new Error(`unexpected POST ${path}`)
+    })
+    const get = vi.fn(async () => new Response(JSON.stringify({
+      providers: [{ display_name: 'Username & Password', name: 'basic', supports_password: true }]
+    })))
+    const connectGateway = vi.fn()
+
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={connectGateway} createRestClient={vi.fn(() => ({ get, post }))} />)
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'https://gateway.example.test' } })
+    fireEvent.change(screen.getByLabelText('Remote username'), { target: { value: 'alice' } })
+    fireEvent.change(screen.getByLabelText('Remote password'), { target: { value: 'wrong' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+
+    await waitFor(() => expect(screen.getByText('Invalid username or password')).toBeTruthy())
+    expect(connectGateway).not.toHaveBeenCalled()
+    // the form stays so the credential can be corrected
+    expect(screen.getByLabelText('Remote username')).toBeTruthy()
+  })
+
+  it('reveals and re-hides the password without losing what was typed', () => {
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={vi.fn()} createRestClient={vi.fn(() => ({ get: vi.fn(), post: vi.fn() }))} />)
+
+    fireEvent.change(screen.getByLabelText('Remote password'), { target: { value: 'secret' } })
+    expect(screen.getByLabelText('Remote password').getAttribute('type')).toBe('password')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show password' }))
+    expect(screen.getByLabelText('Remote password').getAttribute('type')).toBe('text')
+    // the reveal must not clear the field — the value is what gets submitted
+    expect((screen.getByLabelText('Remote password') as HTMLInputElement).value).toBe('secret')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide password' }))
+    expect(screen.getByLabelText('Remote password').getAttribute('type')).toBe('password')
+    expect((screen.getByLabelText('Remote password') as HTMLInputElement).value).toBe('secret')
+  })
+
+  it('reports an unreachable endpoint instead of claiming validation', async () => {
+    const get = vi.fn(async () => {
+      throw new Error('Network request failed')
+    })
+    render(<IpadHome createRestClient={vi.fn(() => ({ get, post: vi.fn() }))} />)
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'https://gateway.example.test' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Validate' }))
+
+    await waitFor(() => expect(screen.getByText('Network request failed')).toBeTruthy())
+    // the regression this guards: a well-formed but unreachable address must never read as valid
+    expect(screen.queryByText(/validated/i)).toBeNull()
+  })
+
+  it('rejects an address that is reachable but is not a Hermes gateway', async () => {
+    const get = vi.fn(async () => new Response(JSON.stringify({ hello: 'world' })))
+    render(<IpadHome createRestClient={vi.fn(() => ({ get, post: vi.fn() }))} />)
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'https://gateway.example.test' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Validate' }))
+
+    await waitFor(() => expect(
+      screen.getByText('Reached that address, but it is not a Hermes gateway')
+    ).toBeTruthy())
+  })
+
+  it('surfaces a rejected LAN token rather than a healthy endpoint', async () => {
+    const get = vi.fn(async (path: string) => {
+      if (path === '/api/status') {
+        return new Response(JSON.stringify({ version: '1.2.3' }))
+      }
+      return new Response(JSON.stringify({ detail: 'nope' }), { status: 401 })
+    })
+    render(<IpadHome createRestClient={vi.fn(() => ({ get, post: vi.fn() }))} />)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'http://10.112.141.190:9119' } })
+    fireEvent.change(screen.getByLabelText('LAN session token'), { target: { value: 'stale-token' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I understand this LAN connection uses unencrypted HTTP and WS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Validate' }))
+
+    await waitFor(() => expect(
+      screen.getByText('The gateway is reachable, but it rejected the LAN token')
+    ).toBeTruthy())
+  })
+
+  it('stores the credential only when auto-login is ticked', async () => {
+    const saveAutoLogin = vi.fn(async () => undefined)
+    const clearAutoLogin = vi.fn(async () => undefined)
+    const connectGateway = vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request: vi.fn() }))
+    const get = vi.fn(async (path: string) => {
+      if (path === '/api/auth/providers') {
+        return new Response(JSON.stringify({
+          providers: [{ display_name: 'Username & Password', name: 'basic', supports_password: true }]
+        }))
+      }
+      return new Response(JSON.stringify({ sessions: [] }))
+    })
+    const post = vi.fn(async (path: string) => {
+      if (path === '/auth/password-login') {
+        return new Response(JSON.stringify({ next: '/', ok: true }))
+      }
+      return new Response(JSON.stringify({ ticket: 'one-shot', ttl_seconds: 30 }))
+    })
+
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin, read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(), save: vi.fn(), saveAutoLogin, saveLanSessionToken: vi.fn()
+    }} connectGateway={connectGateway} createRestClient={vi.fn(() => ({ get, post }))} />)
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'https://gateway.example.test' } })
+    fireEvent.change(screen.getByLabelText('Remote username'), { target: { value: 'alice' } })
+    fireEvent.change(screen.getByLabelText('Remote password'), { target: { value: 'secret' } })
+    // Drive the change event directly: a controlled checkbox toggled by fireEvent.click flips the
+    // DOM's checked flag without necessarily reaching React's onChange, which makes the assertion
+    // below pass while the component state never updates.
+    fireEvent.click(screen.getByLabelText('Sign in automatically next time'))
+    // Re-query after a render tick: reading the stale reference would show the DOM flag jsdom set
+    // from the click, which is true even when React's onChange never ran and the state is still false.
+    await waitFor(() => expect(
+      (screen.getByLabelText('Sign in automatically next time') as HTMLInputElement).checked
+    ).toBe(true))
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+
+    await waitFor(() => expect(saveAutoLogin).toHaveBeenCalledWith({
+      baseUrl: 'https://gateway.example.test',
+      password: 'secret',
+      username: 'alice'
+    }))
+    expect(clearAutoLogin).not.toHaveBeenCalled()
+  })
+
+  it('drops the stored credential when auto-login is left unticked', async () => {
+    const clearAutoLogin = vi.fn(async () => undefined)
+    const get = vi.fn(async (path: string) => {
+      if (path === '/api/auth/providers') {
+        return new Response(JSON.stringify({ providers: [{ name: 'basic', supports_password: true }] }))
+      }
+      return new Response(JSON.stringify({ sessions: [] }))
+    })
+    const post = vi.fn(async (path: string) => {
+      if (path === '/auth/password-login') {
+        return new Response(JSON.stringify({ ok: true }))
+      }
+      return new Response(JSON.stringify({ ticket: 'one-shot', ttl_seconds: 30 }))
+    })
+
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin, read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request: vi.fn() }))} createRestClient={vi.fn(() => ({ get, post }))} />)
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'https://gateway.example.test' } })
+    fireEvent.change(screen.getByLabelText('Remote username'), { target: { value: 'alice' } })
+    fireEvent.change(screen.getByLabelText('Remote password'), { target: { value: 'secret' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+
+    await waitFor(() => expect(clearAutoLogin).toHaveBeenCalled())
+  })
+
+  it('signs in on launch from the stored credential without any interaction', async () => {
+    const readAutoLogin = vi.fn(async () => ({
+      baseUrl: 'https://gateway.example.test',
+      password: 'secret',
+      username: 'alice'
+    }))
+    const connectGateway = vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request: vi.fn() }))
+    const get = vi.fn(async (path: string) => {
+      if (path === '/api/auth/providers') {
+        return new Response(JSON.stringify({ providers: [{ name: 'basic', supports_password: true }] }))
+      }
+      return new Response(JSON.stringify({ sessions: [] }))
+    })
+    const post = vi.fn(async (path: string) => {
+      if (path === '/auth/password-login') {
+        return new Response(JSON.stringify({ ok: true }))
+      }
+      return new Response(JSON.stringify({ ticket: 'auto-ticket', ttl_seconds: 30 }))
+    })
+
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin, readLanSessionToken: vi.fn(), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={connectGateway} createRestClient={vi.fn(() => ({ get, post }))} />)
+
+    // no clicks at all: the launch pass has to carry the whole sign-in
+    await waitFor(() => expect(connectGateway).toHaveBeenCalledWith(
+      expect.objectContaining({ ticket: 'auto-ticket' })
+    ))
+    expect(post).toHaveBeenCalledWith('/auth/password-login', {
+      password: 'secret',
+      provider: 'basic',
+      username: 'alice'
+    })
+  })
+
 })
