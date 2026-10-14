@@ -180,18 +180,29 @@ _REFRESH_TTL_SECONDS = 30 * 24 * 60 * 60   # refresh window
 and `revoke_session` is a documented no-op — *"Stateless tokens — nothing to revoke server-side"*.
 There is no server-side session store to lose.
 
-So the matrix is:
+The signing key is the one thing that decides restart behaviour, and it has two cases
+(`_resolve_secret`):
+
+```python
+if not raw:
+    logger.info("…no 'secret' configured; generating a random per-process signing key. "
+                "Sessions will not survive a restart or span multiple workers…")
+    return secrets.token_bytes(32)
+```
 
 | Event | Result |
 | --- | --- |
 | Within 12 h | access token used directly |
 | After 12 h | the dashboard middleware refreshes it in the background; the client sees nothing |
 | After 30 d | refresh window lapses → 401 and the cookies are cleared → sign-in required |
-| App relaunch | cookie lives in the platform's cookie store → still valid |
-| **Backend restart** | **still valid** — the signature key comes from config and does not rotate |
+| App relaunch | cookie lives in the platform's cookie store → **still valid** |
+| Backend restart, `secret` **set** | **still valid** — the key is stable |
+| Backend restart, `secret` **unset** | **all cookies invalidated** — a fresh random key each process |
 
-The premise "re-login after a restart" therefore does not hold, and the work that item implied was
-not a missing feature but a misunderstood one.
+So "re-login after a restart" is real, but it is a *configuration* outcome rather than a fixed
+property: whether it happens depends on `dashboard.basic_auth.secret` being present, and the provider
+says which case is in force in its own log line at INFO. An earlier draft of this file asserted
+restart-safety unconditionally; that was wrong.
 
 What *was* missing is a real defect found on the way: `list()` did not check `response.ok`, so an
 expired cookie produced `Hermes returned an invalid session list`. A 401 body is `{"detail": ...}`,

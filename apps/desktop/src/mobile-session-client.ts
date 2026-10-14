@@ -8,11 +8,11 @@ export interface MobileGatewayRequest {
 /**
  * The gateway refused the session cookie (401/403).
  *
- * The cookie is stateless and signed with a key from config, so it outlives both an app relaunch
- * and a backend restart; the server also refreshes its 12-hour access token in the background. The
- * single way it ends is the 30-day refresh window lapsing — and then every call fails the same way.
- * Naming that case lets the caller retry with stored credentials instead of surfacing an error the
- * user can do nothing with.
+ * The cookie is stateless, signed with a key resolved at startup (`dashboard.basic_auth.secret`, or
+ * a random per-process key when unset — so a restart can invalidate it) and it lapses with the
+ * 30-day refresh window. An app relaunch does not end it. Whenever it does end, every call fails
+ * the same way, so naming the case lets the caller retry with stored credentials instead of
+ * surfacing an error the user can do nothing with.
  */
 export class MobileSessionAuthError extends Error {
   constructor(status: number) {

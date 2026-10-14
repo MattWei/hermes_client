@@ -426,11 +426,12 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
   /**
    * Re-establish the session when the gateway refuses the cookie.
    *
-   * The cookie is stateless and signed with a key from config, so it survives an app relaunch and a
-   * backend restart; the server even refreshes its 12-hour access token in the background. The one
-   * thing that ends it is the 30-day refresh window, after which every request fails identically.
-   * Reconnecting replays the stored credentials and reloads the surface, so there is nothing left
-   * for the caller to retry.
+   * The cookie is stateless, signed with a key resolved at startup: `dashboard.basic_auth.secret`,
+   * or a random per-process key when that is unset — in which case every restart invalidates the
+   * existing cookies. Either way the 30-day refresh window eventually ends it, and an app relaunch
+   * never does (the cookie lives in the platform's cookie store). Whatever the cause, every request
+   * fails identically, so reconnecting with the stored credentials is the one useful response; it
+   * reloads the whole surface, leaving nothing for the caller to retry.
    */
   async function reauthenticate(): Promise<boolean> {
     const stored = await credentialStore.readAutoLogin()
