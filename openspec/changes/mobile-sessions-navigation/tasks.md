@@ -168,6 +168,10 @@
       can act on. 401/403 now raise `MobileSessionAuthError`.
 - [x] J5 Retry once with the stored credentials when that error appears; fall back to the
       actionable message only when nothing is stored.
+- [ ] J6 **Not verified end to end, on purpose.** The retry is covered by unit tests, but no real
+      expired cookie has driven it — the cheapest reproduction is to rotate
+      `dashboard.basic_auth.secret` on the backend, which invalidates every live client once. The
+      user has deferred this; it stays open rather than being recorded as done.
 
 ## Verification
 

@@ -204,6 +204,11 @@ property: whether it happens depends on `dashboard.basic_auth.secret` being pres
 says which case is in force in its own log line at INFO. An earlier draft of this file asserted
 restart-safety unconditionally; that was wrong.
 
+**Not verified against a real expiry.** Rotating `dashboard.basic_auth.secret` invalidates every
+live client at once, which is the cheap reproduction — but it signs every other device out too, so
+the user deferred it. The retry path is covered by unit tests only; this is recorded as open rather
+than done.
+
 What *was* missing is a real defect found on the way: `list()` did not check `response.ok`, so an
 expired cookie produced `Hermes returned an invalid session list`. A 401 body is `{"detail": ...}`,
 which fails the `Array.isArray(body.sessions)` guard — the expiry was being reported as a malformed
