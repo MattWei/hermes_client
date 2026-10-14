@@ -17,7 +17,7 @@ interface IpadComposerProps {
 /** Message composer, shared by the offline surface and the session detail view. */
 export function IpadComposer({ draft, onDraftChange, onFilesChange, onSubmit, pendingFiles, sessionId }: IpadComposerProps) {
   return (
-    <form className="border-t border-(--ui-stroke-tertiary) pt-4" onSubmit={onSubmit}>
+    <form className="mt-auto shrink-0 border-t border-(--ui-stroke-tertiary) pt-4" onSubmit={onSubmit}>
       {pendingFiles.length > 0 && <div aria-label="Pending attachments" className="mb-2 flex flex-wrap gap-2">
         {pendingFiles.map((file, index) => <button className="rounded-lg border border-(--ui-stroke-tertiary) px-2 py-1 text-sm" key={`${file.name}-${index}`} onClick={() => onFilesChange(pendingFiles.filter((_, itemIndex) => itemIndex !== index))} type="button">Remove {file.name}</button>)}
       </div>}
@@ -65,8 +65,8 @@ export function IpadSessionDetail({
   approval, draft, messages, onDraftChange, onFilesChange, onRespondToApproval, onSubmit, pendingFiles, sessionId, toolActivities
 }: IpadSessionDetailProps) {
   return (
-    <div className="flex flex-1 flex-col">
-      {approval && <section aria-label="Approval request" className="mt-4 rounded-xl border border-amber-500/50 p-3">
+    <div className="flex min-h-0 flex-1 flex-col">
+      {approval && <section aria-label="Approval request" className="mt-4 shrink-0 rounded-xl border border-amber-500/50 p-3">
         <p className="font-medium">Approval required</p>
         {approval.description && <p className="mt-1 text-sm">{approval.description}</p>}
         {approval.command && <pre className="mt-2 overflow-x-auto text-sm">{approval.command}</pre>}
@@ -76,12 +76,12 @@ export function IpadSessionDetail({
         </div>
       </section>}
 
-      {toolActivities.length > 0 && <section aria-label="Tool activity" className="flex flex-col gap-2 py-4">
+      {toolActivities.length > 0 && <section aria-label="Tool activity" className="flex shrink-0 flex-col gap-2 py-4">
         <p className="font-mono text-xs tracking-[0.14em] text-[color:var(--ui-text-tertiary)]">TOOL ACTIVITY</p>
         {toolActivities.map(activity => <p className="rounded-xl border border-(--ui-stroke-tertiary) px-3 py-2 text-sm" key={activity.id}>{activity.name} · {activity.status}</p>)}
       </section>}
 
-      {messages.length > 0 && <section aria-label="Conversation" className="flex flex-1 flex-col gap-3 py-6 [&_pre]:overflow-x-auto [&_table]:block [&_table]:w-full [&_table]:overflow-x-auto">
+      {messages.length > 0 && <section aria-label="Conversation" className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto py-6 [&_pre]:overflow-x-auto [&_table]:block [&_table]:w-full [&_table]:overflow-x-auto">
         {messages.map(message => <article
           className={message.role === 'user'
             ? 'max-w-[85%] self-end rounded-2xl bg-[var(--ui-bg-quaternary)] px-3 py-2'

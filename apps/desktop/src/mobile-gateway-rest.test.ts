@@ -36,7 +36,7 @@ describe('createMobileGatewayRestClient', () => {
       token: 'lan-token'
     }, fetchFn, {
       isNativePlatform: () => true,
-      nativeHttp: { get, post: vi.fn() }
+      nativeHttp: { delete: vi.fn(), get, patch: vi.fn(), post: vi.fn() }
     })
 
     const response = await client.get('/api/sessions')
@@ -93,7 +93,7 @@ describe('createMobileGatewayRestClient', () => {
       mode: 'secure'
     }, vi.fn(), {
       isNativePlatform: () => true,
-      nativeHttp: { get: vi.fn(), post }
+      nativeHttp: { delete: vi.fn(), get: vi.fn(), patch: vi.fn(), post }
     })
 
     await client.post('/auth/password-login', { password: 'p', provider: 'basic', username: 'u' })

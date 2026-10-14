@@ -92,6 +92,46 @@
 - [x] F8 Centred wordmark, password reveal moved inside the field as an eye icon, the two primary
       buttons unified and their labels shortened.
 
+## Phase G — session-list correctness (follow-up)
+
+- [x] G1 Label a row by title → preview → placeholder. The backend only auto-titles after a complete
+      exchange, so most rows carry a preview and no title; falling straight to the placeholder made
+      the list unreadable.
+- [x] G2 List with `min_messages=1`, as the desktop sidebar does. `min_messages=0` surfaced every
+      abandoned draft as an empty "Untitled session".
+- [x] G3 Carry the profile on the calls that need it: `?profile=` on the list and `profile` on
+      `session.create`.
+- [x] G4 **Fix**: opening a session while another profile was selected showed an empty transcript —
+      `session.resume` and the messages route both have to name the profile, or the server looks in
+      its own store and finds no such session id.
+- [x] G5 Stop sending an invented title on create, matching the desktop ("No title: the backend
+      auto-names the branch"). A stored placeholder suppressed the preview fallback permanently.
+
+## Phase H — session management (long-press)
+
+- [x] H1 Long-press a row for a Rename / Delete action sheet; repeat press dismisses it, opening a
+      session closes it.
+- [x] H2 Detect the press by timing pointer events — WKWebView does **not** deliver `contextmenu`
+      for a long press on an ordinary element, and raises the system callout unless
+      `-webkit-touch-callout: none` is set.
+- [x] H3 Suppress the click that follows a long press, so the action sheet does not also open the row.
+- [x] H4 Rename in place: the row becomes an input, because WKWebView does not present
+      `window.prompt()`.
+- [x] H5 **Route both over REST** (`DELETE`/`PATCH /api/sessions/{id}`), as the desktop does. The WS
+      methods resolve through the gateway's in-memory table (runtime ids): `session.title` answers
+      4001 for a stored id, and `session.delete` refuses anything still held with 4023.
+- [x] H6 **Verified on hardware by the user**: rename and delete both work.
+
+## Phase I — layout
+
+- [x] I1 The transcript scrolls, not the page: a long conversation pushed the composer off screen
+      because `min-h-dvh` let the root grow and `overflow-y-auto` sat on the shell instead of the
+      message list.
+- [x] I2 An empty session keeps the composer at the bottom — with no messages the `flex-1`
+      transcript is not rendered, so nothing absorbed the leftover space.
+- [x] I3 Swap the profile selector and the disconnect control: selector to the sidebar footer,
+      `logout` beside the `Sessions` heading.
+
 ## Verification
 
 - [x] List → session round-trip on the iPad simulator (back transition still unit-test only).
@@ -99,7 +139,10 @@
 
 ## Notes
 
-- Phases A, A2 and B are complete on iOS; see the evidence files listed in `evidence/`.
+- Phases A, A2, B and F–I are complete on iOS; see the evidence files listed in `evidence/`.
+- Session-list correctness, profile scoping, layout and the long-press menu — with the two
+  verification failures that shaped their method — are in
+  `evidence/session-list-and-management.md`.
 
 - Phase A shipped: see `evidence/phase-a-navigation-validation.md`.
 - The technical spike that gates phase B is complete:

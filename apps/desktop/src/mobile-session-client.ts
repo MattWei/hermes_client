@@ -7,6 +7,8 @@ export interface MobileGatewayRequest {
 
 export interface MobileSessionRest {
   get(path: string): Promise<Response>
+  patch(path: string, body?: unknown): Promise<Response>
+  remove(path: string): Promise<Response>
 }
 
 export interface MobileSessionIdentity {
@@ -47,7 +49,15 @@ export interface MobileResumedSession {
   storedSessionId: string
 }
 
-const MOBILE_SESSION_LIST_PATH = '/api/sessions?limit=40&offset=0&min_messages=0&archived=exclude&order=recent'
+/**
+ * Session rows live in per-profile databases server-side, so a list is only meaningful for a named
+ * profile. Omitting it asks for the process's own store — right for loopback/LAN, wrong for a remote
+ * client that has selected a profile.
+ */
+function mobileSessionListPath(profile?: string): string {
+  const base = '/api/sessions?limit=40&offset=0&min_messages=1&archived=exclude&order=recent'
+  return profile ? `${base}&profile=${encodeURIComponent(profile)}` : base
+}
 
 function readSessionMessages(body: unknown): ChatMessage[] {
   const history = body as SessionMessagesResponse
@@ -57,20 +67,27 @@ function readSessionMessages(body: unknown): ChatMessage[] {
   return toChatMessages(history.messages as SessionMessage[])
 }
 
-export async function loadMobileSessionHistory(rest: MobileSessionRest, storedSessionId: string): Promise<ChatMessage[]> {
+export async function loadMobileSessionHistory(rest: MobileSessionRest, storedSessionId: string, profile?: string): Promise<ChatMessage[]> {
+  // Messages are read from a per-profile database: without the profile the server looks in its own
+  // store, finds no such session id, and answers with an empty transcript.
+  const profileQuery = profile ? `&profile=${encodeURIComponent(profile)}` : ''
   const historyResponse = await rest.get(
-    `/api/sessions/${encodeURIComponent(storedSessionId)}/messages?limit=120&order=latest&include_compacted=true`
+    `/api/sessions/${encodeURIComponent(storedSessionId)}/messages?limit=120&order=latest&include_compacted=true${profileQuery}`
   )
   return historyResponse.status === 404 ? [] : readSessionMessages(await historyResponse.json())
 }
 
 export function createMobileSessionClient(gateway: MobileGatewayRequest, rest?: MobileSessionRest) {
   return {
-    async create(title: string): Promise<MobileSessionIdentity> {
+    async create(profile?: string): Promise<MobileSessionIdentity> {
+      // No title, matching the desktop: the backend auto-names the session after its first complete
+      // exchange, and until then the list falls back to the preview. A placeholder title we invent
+      // here would be stored forever and suppress that fallback.
+      // The profile does travel: the session binds to it at creation and keeps it for every later call.
       const response = await gateway.request('session.create', {
         cols: 80,
-        source: 'mobile',
-        title
+        ...(profile ? { profile } : {}),
+        source: 'mobile'
       }) as SessionCreateResponse
       if (typeof response.session_id !== 'string' || !response.session_id) {
         throw new Error('Hermes did not return a runtime session id')
@@ -82,19 +99,22 @@ export function createMobileSessionClient(gateway: MobileGatewayRequest, rest?: 
           : {})
       }
     },
-    async resume(storedSessionId: string): Promise<MobileResumedSession> {
+    async resume(storedSessionId: string, profile?: string): Promise<MobileResumedSession> {
       if (!rest) {
         throw new Error('Mobile session resume requires a REST client')
       }
+      // Resolve the session inside its own profile; the server binds profile_home from here and
+      // every later call on this session follows it.
       const response = await gateway.request('session.resume', {
         cols: 80,
         omit_messages: true,
+        ...(profile ? { profile } : {}),
         session_id: storedSessionId
       }) as SessionResumeResponse
       if (typeof response.session_id !== 'string' || !response.session_id) {
         throw new Error('Hermes did not return a runtime session id')
       }
-      const messages = await loadMobileSessionHistory(rest, storedSessionId)
+      const messages = await loadMobileSessionHistory(rest, storedSessionId, profile)
       return {
         messages,
         runtimeSessionId: response.session_id,
@@ -103,11 +123,58 @@ export function createMobileSessionClient(gateway: MobileGatewayRequest, rest?: 
           : storedSessionId
       }
     },
-    async list(): Promise<MobileSessionListItem[]> {
+    /**
+     * Delete a stored session. The server locates it in the named profile's database, refuses while
+     * the session is live, and removes its transcripts alongside the row.
+     */
+    /**
+     * Delete a stored session.
+     *
+     * REST rather than the WS `session.delete`: the WS method resolves its target through the
+     * gateway's in-memory session table (keyed by RUNTIME id) and refuses anything still held there
+     * with 4023 — which includes a session that was merely resumed. The REST route resolves the
+     * stored id the list actually carries straight against the database and only guards a genuinely
+     * in-flight write.
+     */
+    async remove(storedSessionId: string, profile?: string): Promise<void> {
+      if (!rest) {
+        throw new Error('Mobile session delete requires a REST client')
+      }
+      // Absent counts as success: the endpoint is idempotent, and a row can vanish between paint and tap.
+      const query = profile ? `?profile=${encodeURIComponent(profile)}` : ''
+      const response = await rest.remove(`/api/sessions/${encodeURIComponent(storedSessionId)}${query}`)
+      if (!response.ok && response.status !== 404) {
+        throw new Error(`Unable to delete the session (HTTP ${response.status})`)
+      }
+    },
+    /**
+     * Rename a stored session, by the same REST route the desktop uses. Sending a title is explicit
+     * intent, so the server persists the row immediately; the list's min-messages filter keeps a
+     * titled-but-empty row out of the sidebar until it has content.
+     */
+    async rename(storedSessionId: string, title: string, profile?: string): Promise<string> {
+      if (!rest) {
+        throw new Error('Mobile session rename requires a REST client')
+      }
+      const trimmed = title.trim()
+      if (!trimmed) {
+        throw new Error('A session needs a non-empty title')
+      }
+      const response = await rest.patch(`/api/sessions/${encodeURIComponent(storedSessionId)}`, {
+        title: trimmed,
+        ...(profile ? { profile } : {})
+      })
+      if (!response.ok) {
+        throw new Error(`Unable to rename the session (HTTP ${response.status})`)
+      }
+      const payload = await response.json() as { title?: unknown }
+      return typeof payload.title === 'string' ? payload.title : trimmed
+    },
+    async list(profile?: string): Promise<MobileSessionListItem[]> {
       if (!rest) {
         throw new Error('Mobile session list requires a REST client')
       }
-      const response = await rest.get(MOBILE_SESSION_LIST_PATH)
+      const response = await rest.get(mobileSessionListPath(profile))
       const body = await response.json() as SessionListResponse
       if (!Array.isArray(body.sessions)) {
         throw new Error('Hermes returned an invalid session list')

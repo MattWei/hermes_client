@@ -11,6 +11,7 @@ import { createMobilePromptClient, type MobilePromptGateway } from './mobile-pro
 import { createMobileGatewayRestClient, type MobileGatewayRestClient, type MobileGatewayRestConfig } from './mobile-gateway-rest'
 import { createMobileRemoteLoginClient } from './mobile-remote-login'
 import { createMobileSessionClient, loadMobileSessionHistory, type MobileGatewayRequest, type MobileSessionListItem, type MobileSessionRest } from './mobile-session-client'
+import { createMobileProfileClient, type MobileProfileSummary } from './mobile-profile-client'
 import { createMobileToolActivityClient, type MobileToolActivity } from './mobile-tool-activity-client'
 import type { MobileGatewaySocketConfig } from './mobile-gateway-transport'
 import { parseMobileConnection, type MobileConnectionMode } from './mobile-connection'
@@ -59,6 +60,8 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
   const [remoteSigningIn, setRemoteSigningIn] = useState(false)
   const [remotePasswordVisible, setRemotePasswordVisible] = useState(false)
   const [validating, setValidating] = useState(false)
+  const [profiles, setProfiles] = useState<MobileProfileSummary[]>([])
+  const [activeProfile, setActiveProfile] = useState('')
   const [autoLogin, setAutoLogin] = useState(false)
   // Guards the mount pass: auto-login must run once, not on every re-render.
   const autoLoginAttempted = useRef(false)
@@ -180,9 +183,7 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
       setConnectionMessage('LAN gateway connected.')
       // Load the list as soon as the gateway is up. A failure here is not a
       // connection failure, so it must not overwrite the connected status.
-      void createMobileSessionClient(connectedGateway, restClient).list()
-        .then(setSessions)
-        .catch(() => {})
+      void loadConnectedSurface(connectedGateway, restClient)
     } catch (error) {
       setConnectionMessage(error instanceof Error ? error.message : 'Unable to connect to LAN gateway')
     }
@@ -233,13 +234,96 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
       setConnectionMessage('Remote gateway connected.')
       // A list-load failure is not a connection failure, so it must not overwrite the
       // connected status.
-      void createMobileSessionClient(connectedGateway, restClient).list()
-        .then(setSessions)
-        .catch(() => {})
+      void loadConnectedSurface(connectedGateway, restClient)
     } catch (error) {
       setConnectionMessage(error instanceof Error ? error.message : 'Unable to connect to the remote gateway')
     } finally {
       setRemoteSigningIn(false)
+    }
+  }
+
+  /**
+   * Pull everything the connected surface needs, tolerating failure: a list or profile read that
+   * fails is not a connection failure, so it must not overwrite the connected status.
+   */
+  function loadConnectedSurface(connectedGateway: NonNullable<typeof gateway>, restClient: MobileSessionRest, profile?: string) {
+    void createMobileProfileClient(restClient).list()
+      .then(list => {
+        setProfiles(list)
+        // With no choice made yet, the gateway's own default is the honest selection — an empty
+        // value would match no option once the real profiles are known.
+        if (!profile) {
+          const fallback = list.find(entry => entry.isDefault)?.name ?? ''
+          if (fallback) {
+            setActiveProfile(fallback)
+            void createMobileSessionClient(connectedGateway, restClient).list(fallback)
+              .then(setSessions)
+              .catch(() => {})
+            return
+          }
+        }
+        void createMobileSessionClient(connectedGateway, restClient).list(profile)
+          .then(setSessions)
+          .catch(() => {})
+      })
+      .catch(() => {
+        // Profile discovery failed; the session list is still worth loading without one.
+        void createMobileSessionClient(connectedGateway, restClient).list(profile)
+          .then(setSessions)
+          .catch(() => {})
+      })
+  }
+
+  /**
+   * Selecting a profile re-homes the session list. Sessions live in per-profile databases, so the
+   * list must be re-read rather than filtered locally, and the current session no longer belongs
+   * to the surface being shown.
+   */
+  function selectProfile(profile: string) {
+    setActiveProfile(profile)
+    setSessions([])
+    setSessionId(null)
+    setActiveStoredSessionId(null)
+    setMessages([])
+    setView('list')
+    if (gateway && rest) {
+      loadConnectedSurface(gateway, rest, profile || undefined)
+    }
+  }
+
+  /**
+   * Deleting the session the user is reading must also clear it from the surface — the server
+   * refuses to delete a live session, so a currently-open one is closed first by dropping the view
+   * back to the list.
+   */
+  async function deleteStoredSession(storedSessionId: string) {
+    if (!gateway || !rest) {
+      return
+    }
+    try {
+      await createMobileSessionClient(gateway, rest).remove(storedSessionId, activeProfile || undefined)
+      if (activeStoredSessionId === storedSessionId) {
+        activeSessionRef.current = { runtimeSessionId: null, storedSessionId: null }
+        setSessionId(null)
+        setActiveStoredSessionId(null)
+        setMessages([])
+        setView('list')
+      }
+      await refreshSessions()
+    } catch (error) {
+      setConnectionMessage(error instanceof Error ? error.message : 'Unable to delete the session.')
+    }
+  }
+
+  async function renameStoredSession(storedSessionId: string, title: string) {
+    if (!gateway || !rest) {
+      return
+    }
+    try {
+      await createMobileSessionClient(gateway, rest).rename(storedSessionId, title, activeProfile || undefined)
+      await refreshSessions()
+    } catch (error) {
+      setConnectionMessage(error instanceof Error ? error.message : 'Unable to rename the session.')
     }
   }
 
@@ -301,7 +385,7 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
       return
     }
     try {
-      setSessions(await createMobileSessionClient(gateway, rest).list())
+      setSessions(await createMobileSessionClient(gateway, rest).list(activeProfile || undefined))
     } catch (error) {
       setConnectionMessage(error instanceof Error ? error.message : 'Unable to load sessions')
     }
@@ -316,7 +400,7 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
     setView('session')
     setSessionLoading(true)
     try {
-      const session = await createMobileSessionClient(gateway, rest).resume(storedSessionId)
+      const session = await createMobileSessionClient(gateway, rest).resume(storedSessionId, activeProfile || undefined)
       activeSessionRef.current = { runtimeSessionId: session.runtimeSessionId, storedSessionId: session.storedSessionId }
       setSessionId(session.runtimeSessionId)
       setActiveStoredSessionId(session.storedSessionId)
@@ -334,20 +418,37 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
     if (!gateway) {
       return
     }
+    /**
+     * An untouched session is reusable.
+     *
+     * The backend deliberately does NOT persist a row at create time — it writes one on the first
+     * turn — so repeatedly pressing New mints runtime sessions that hold no history and leave no
+     * database row behind. Minting another one to replace an equally empty one produces nothing the
+     * user can see except a growing local list of identical "New mobile chat" rows, all of which
+     * vanish on the next launch because the server never knew about them. Stay on the empty one.
+     */
+    // Untouched means no sent messages AND nothing composed: a typed draft or a staged attachment
+    // is the user's work, and minting a new session would discard it.
+    const untouched = sessionId != null && messages.length === 0
+      && draft.trim() === '' && pendingFiles.length === 0
+    if (untouched) {
+      setView('session')
+      return
+    }
     setView('session')
     setSessionLoading(true)
     try {
-      const session = await createMobileSessionClient(gateway).create('New mobile chat')
+      const session = await createMobileSessionClient(gateway).create(activeProfile || undefined)
       setSessionId(session.runtimeSessionId)
       setMessages([])
       const storedSessionId = session.storedSessionId
       activeSessionRef.current = { runtimeSessionId: session.runtimeSessionId, storedSessionId: storedSessionId ?? null }
       setActiveStoredSessionId(storedSessionId ?? null)
-      if (storedSessionId) {
-        setSessions(current => current.some(item => item.id === storedSessionId)
-          ? current
-          : [{ id: storedSessionId, preview: null, title: 'New mobile chat', updatedAt: Date.now() / 1000 }, ...current])
-      }
+      // Deliberately NOT added to the list. The backend writes no row until the first turn, so a row
+      // here would be a local fiction: it cannot survive a reload, and pressing New again after
+      // visiting another session layers a second identical fiction on top. The list is refreshed
+      // once the session is real — see submitMessage. The open session is already visible in the
+      // inset header, so nothing is lost by waiting.
       setConnectionMessage(`Session ${session.runtimeSessionId} created.`)
     } catch (error) {
       setView('list')
@@ -372,6 +473,9 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
       setMessages(current => [...current, { id: `mobile-user-${Date.now()}`, parts: [textPart(text)], role: 'user' }])
       setDraft('')
       setPendingFiles([])
+      // The first turn is what makes the backend persist this session, so this is the moment the
+      // list can truthfully include it. Refresh rather than guess.
+      void refreshSessions()
     } catch (error) {
       setConnectionMessage(error instanceof Error ? error.message : 'Unable to send message')
     }
@@ -414,15 +518,20 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
   // Connected: the desktop-shaped layout — collapsible session sidebar plus the open session.
   if (gateway) {
     return (
-      <main className="min-h-dvh bg-[var(--ui-bg-primary)] text-[color:var(--ui-text-primary)]">
+      <main className="h-dvh overflow-hidden bg-[var(--ui-bg-primary)] text-[color:var(--ui-text-primary)]">
         <IpadShell
+        activeProfile={activeProfile}
+        onSelectProfile={selectProfile}
+        profiles={profiles}
           activeSessionId={activeStoredSessionId}
           activeTitle={activeTitle}
           connectionMessage={connectionMessage}
           onCreate={() => void startNewSession()}
+        onDelete={storedSessionId => void deleteStoredSession(storedSessionId)}
           onDisconnect={disconnectGateway}
           onOpen={storedSessionId => void openStoredSession(storedSessionId)}
           onRefresh={() => void refreshSessions()}
+        onRename={(storedSessionId, title) => void renameStoredSession(storedSessionId, title)}
           sessions={sessions}
         >
           {view === 'session' && sessionLoading && <p className="py-10 text-sm text-[color:var(--ui-text-tertiary)]" role="status">Loading session…</p>}

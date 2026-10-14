@@ -25,7 +25,9 @@ interface NativeHttpOptions {
 interface MobileGatewayRestRuntime {
   isNativePlatform(): boolean
   nativeHttp: {
+    delete(options: NativeHttpOptions): Promise<NativeHttpResponse>
     get(options: NativeHttpOptions): Promise<NativeHttpResponse>
+    patch(options: NativeHttpOptions & { data: unknown }): Promise<NativeHttpResponse>
     post(options: NativeHttpOptions & { data: unknown }): Promise<NativeHttpResponse>
   }
 }
@@ -47,27 +49,28 @@ export function createMobileGatewayRestClient(
     ? lanHeaders(config.token)
     : secureHeaders(config.accessToken)
 
-  async function send(path: string, init: { body?: unknown; method: 'GET' | 'POST' }): Promise<Response> {
+  async function send(path: string, init: { body?: unknown; method: 'DELETE' | 'GET' | 'PATCH' | 'POST' }): Promise<Response> {
     if (!path.startsWith('/api/') && !path.startsWith('/auth/')) {
       throw new Error('Mobile gateway REST paths must begin with /api/ or /auth/')
     }
-    const requestHeaders = init.method === 'POST'
+    const carriesBody = init.method === 'POST' || init.method === 'PATCH'
+    const requestHeaders = carriesBody
       ? { ...headers, 'Content-Type': 'application/json' }
       : headers
     const url = `${connection.baseUrl}${path}`
 
     if (!runtime.isNativePlatform()) {
       return fetchFn(url, {
-        body: init.method === 'POST' ? JSON.stringify(init.body ?? {}) : undefined,
+        body: carriesBody ? JSON.stringify(init.body ?? {}) : undefined,
         headers: requestHeaders,
         method: init.method
       })
     }
 
     const options: NativeHttpOptions = { headers: requestHeaders, responseType: 'text', url }
-    const response = init.method === 'POST'
-      ? await runtime.nativeHttp.post({ ...options, data: init.body ?? {} })
-      : await runtime.nativeHttp.get(options)
+    const response = carriesBody
+      ? await runtime.nativeHttp[init.method === 'POST' ? 'post' : 'patch']({ ...options, data: init.body ?? {} })
+      : await runtime.nativeHttp[init.method === 'GET' ? 'get' : 'delete'](options)
     return toResponse(response)
   }
 
@@ -75,8 +78,14 @@ export function createMobileGatewayRestClient(
     get(path: string): Promise<Response> {
       return send(path, { method: 'GET' })
     },
+    patch(path: string, body?: unknown): Promise<Response> {
+      return send(path, { body, method: 'PATCH' })
+    },
     post(path: string, body?: unknown): Promise<Response> {
       return send(path, { body, method: 'POST' })
+    },
+    remove(path: string): Promise<Response> {
+      return send(path, { method: 'DELETE' })
     }
   }
 }
