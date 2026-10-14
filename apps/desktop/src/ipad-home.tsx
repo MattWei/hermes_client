@@ -10,7 +10,7 @@ import type { MobileCredentialStore } from './mobile-credential-store'
 import { createMobilePromptClient, type MobilePromptGateway } from './mobile-prompt-client'
 import { createMobileGatewayRestClient, type MobileGatewayRestClient, type MobileGatewayRestConfig } from './mobile-gateway-rest'
 import { createMobileRemoteLoginClient } from './mobile-remote-login'
-import { createMobileSessionClient, loadMobileSessionHistory, type MobileGatewayRequest, type MobileSessionListItem, type MobileSessionRest } from './mobile-session-client'
+import { createMobileSessionClient, loadMobileSessionHistory, MobileSessionAuthError, type MobileGatewayRequest, type MobileSessionListItem, type MobileSessionRest } from './mobile-session-client'
 import { createMobileProfileClient, type MobileProfileSummary } from './mobile-profile-client'
 import { mergePinsFromRows, readCachedPins, writeCachedPins } from './mobile-session-pins'
 import { createMobileToolActivityClient, type MobileToolActivity } from './mobile-tool-activity-client'
@@ -423,6 +423,28 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
     })
   }, [gateway])
 
+  /**
+   * Re-establish the session when the gateway refuses the cookie.
+   *
+   * The cookie is stateless and signed with a key from config, so it survives an app relaunch and a
+   * backend restart; the server even refreshes its 12-hour access token in the background. The one
+   * thing that ends it is the 30-day refresh window, after which every request fails identically.
+   * Reconnecting replays the stored credentials and reloads the surface, so there is nothing left
+   * for the caller to retry.
+   */
+  async function reauthenticate(): Promise<boolean> {
+    const stored = await credentialStore.readAutoLogin()
+    if (!stored) {
+      return false
+    }
+    try {
+      await connectRemoteGateway({ baseUrl: stored.baseUrl, password: stored.password, username: stored.username })
+      return true
+    } catch {
+      return false
+    }
+  }
+
   async function refreshSessions() {
     if (!gateway || !rest) {
       return
@@ -430,6 +452,9 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
     try {
       setSessions(rememberPins(activeProfile, await createMobileSessionClient(gateway, rest).list(activeProfile || undefined)))
     } catch (error) {
+      if (error instanceof MobileSessionAuthError && await reauthenticate()) {
+        return
+      }
       setConnectionMessage(error instanceof Error ? error.message : 'Unable to load sessions')
     }
   }

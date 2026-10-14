@@ -165,6 +165,40 @@ whose response reflects the **already-updated** server state. A mock that kept a
 `pinned: false` made the follow-up list silently undo the optimistic row — correct behaviour from
 correct code, which is why the fixture now models a server whose value actually changes.
 
+## Session lifetime
+
+Answered from the provider rather than by waiting 30 days. `plugins/dashboard_auth/basic/__init__.py`:
+
+```python
+# HMAC-signed tokens (no IDP, no database); passwords use stdlib scrypt
+_DEFAULT_TTL_SECONDS = 12 * 60 * 60        # access token
+_REFRESH_TTL_SECONDS = 30 * 24 * 60 * 60   # refresh window
+# access token lapses, so the TTL controls refresh frequency, not login length.
+```
+
+`verify_session` / `refresh_session` are pure signature checks (`_unsign(token, self._secret, kind)`),
+and `revoke_session` is a documented no-op — *"Stateless tokens — nothing to revoke server-side"*.
+There is no server-side session store to lose.
+
+So the matrix is:
+
+| Event | Result |
+| --- | --- |
+| Within 12 h | access token used directly |
+| After 12 h | the dashboard middleware refreshes it in the background; the client sees nothing |
+| After 30 d | refresh window lapses → 401 and the cookies are cleared → sign-in required |
+| App relaunch | cookie lives in the platform's cookie store → still valid |
+| **Backend restart** | **still valid** — the signature key comes from config and does not rotate |
+
+The premise "re-login after a restart" therefore does not hold, and the work that item implied was
+not a missing feature but a misunderstood one.
+
+What *was* missing is a real defect found on the way: `list()` did not check `response.ok`, so an
+expired cookie produced `Hermes returned an invalid session list`. A 401 body is `{"detail": ...}`,
+which fails the `Array.isArray(body.sessions)` guard — the expiry was being reported as a malformed
+response from a healthy server. 401/403 now raise `MobileSessionAuthError`, and the loader retries
+once with the stored credentials before falling back to a message the user can act on.
+
 ## Orientation
 
 Portrait needed no work: the user's iPad is in portrait as its normal orientation, and the shell

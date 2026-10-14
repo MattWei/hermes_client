@@ -5,6 +5,25 @@ export interface MobileGatewayRequest {
   request(method: string, params?: Record<string, unknown>): Promise<unknown>
 }
 
+/**
+ * The gateway refused the session cookie (401/403).
+ *
+ * The cookie is stateless and signed with a key from config, so it outlives both an app relaunch
+ * and a backend restart; the server also refreshes its 12-hour access token in the background. The
+ * single way it ends is the 30-day refresh window lapsing — and then every call fails the same way.
+ * Naming that case lets the caller retry with stored credentials instead of surfacing an error the
+ * user can do nothing with.
+ */
+export class MobileSessionAuthError extends Error {
+  constructor(status: number) {
+    super('Your session expired. Sign in again.')
+    this.name = 'MobileSessionAuthError'
+    this.status = status
+  }
+
+  readonly status: number
+}
+
 export interface MobileSessionRest {
   get(path: string): Promise<Response>
   patch(path: string, body?: unknown): Promise<Response>
@@ -193,6 +212,12 @@ export function createMobileSessionClient(gateway: MobileGatewayRequest, rest?: 
         throw new Error('Mobile session list requires a REST client')
       }
       const response = await rest.get(mobileSessionListPath(profile))
+      if (response.status === 401 || response.status === 403) {
+        throw new MobileSessionAuthError(response.status)
+      }
+      if (!response.ok) {
+        throw new Error(`Unable to list sessions (HTTP ${response.status})`)
+      }
       const body = await response.json() as SessionListResponse
       if (!Array.isArray(body.sessions)) {
         throw new Error('Hermes returned an invalid session list')

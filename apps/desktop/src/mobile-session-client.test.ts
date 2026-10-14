@@ -239,4 +239,27 @@ describe('createMobileSessionClient', () => {
     expect(patch).not.toHaveBeenCalled()
   })
 
+  it('names an expired cookie instead of reporting a malformed list', async () => {
+    // A 401 body is {"detail": ...}, so without this the caller would see "invalid session list"
+    // and have nothing to act on.
+    const get = vi.fn(async () => new Response(JSON.stringify({ detail: 'unauthorized' }), { status: 401 }))
+
+    await expect(createMobileSessionClient({ request: vi.fn() }, { get, patch: vi.fn(), remove: vi.fn() }).list())
+      .rejects.toThrow('session expired')
+  })
+
+  it('treats a forbidden response the same way', async () => {
+    const get = vi.fn(async () => new Response('', { status: 403 }))
+
+    await expect(createMobileSessionClient({ request: vi.fn() }, { get, patch: vi.fn(), remove: vi.fn() }).list())
+      .rejects.toThrow('session expired')
+  })
+
+  it('still reports a genuine server failure as a failure', async () => {
+    const get = vi.fn(async () => new Response('', { status: 500 }))
+
+    await expect(createMobileSessionClient({ request: vi.fn() }, { get, patch: vi.fn(), remove: vi.fn() }).list())
+      .rejects.toThrow('HTTP 500')
+  })
+
 })

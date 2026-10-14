@@ -149,6 +149,22 @@
       behaves identically to landscape. The earlier "portrait unverified" note was an assumption
       about which orientation mattered, not a gap in the surface.
 
+## Phase J — session lifetime
+
+- [x] J1 Establish what the cookie actually is, from the provider: `HMAC-signed tokens (no IDP, no
+      database)`. `verify_session` and `refresh_session` only check a signature over a key read from
+      config — there is no server-side session store.
+- [x] J2 Timings, read off the provider rather than guessed: access token 12 h, refresh window 30 d,
+      and the provider's own comment — "the TTL controls refresh frequency, not login length". The
+      dashboard middleware refreshes the access token in the background.
+- [x] J3 Consequence: the cookie survives an app relaunch **and a backend restart**, so
+      "re-login after restart" was never the behaviour. The only expiry is the 30-day window.
+- [x] J4 **Fix**: `list()` never checked `response.ok`, so an expired cookie surfaced as
+      `Hermes returned an invalid session list` — a server-fault message for a condition the user
+      can act on. 401/403 now raise `MobileSessionAuthError`.
+- [x] J5 Retry once with the stored credentials when that error appears; fall back to the
+      actionable message only when nothing is stored.
+
 ## Verification
 
 - [x] List → session round-trip on the iPad simulator (back transition still unit-test only).
