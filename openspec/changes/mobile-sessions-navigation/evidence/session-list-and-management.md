@@ -165,6 +165,13 @@ whose response reflects the **already-updated** server state. A mock that kept a
 `pinned: false` made the follow-up list silently undo the optimistic row — correct behaviour from
 correct code, which is why the fixture now models a server whose value actually changes.
 
+## Orientation
+
+Portrait needed no work: the user's iPad is in portrait as its normal orientation, and the shell
+behaves identically in both. The item lingered on the open list because the plan had assumed the
+landscape geometry was the one to check — the gap was in which question was asked, not in the
+layout.
+
 ## The stuck hover, and a fix that was half-right
 
 iPadOS leaves `:hover` on the last-touched element and never clears it — there is no pointer to

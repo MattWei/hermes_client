@@ -145,6 +145,9 @@
       transcript is not rendered, so nothing absorbed the leftover space.
 - [x] I3 Swap the profile selector and the disconnect control: selector to the sidebar footer,
       `logout` beside the `Sessions` heading.
+- [x] I4 Portrait, confirmed by the user: the iPad is used in portrait as its normal orientation and
+      behaves identically to landscape. The earlier "portrait unverified" note was an assumption
+      about which orientation mattered, not a gap in the surface.
 
 ## Verification
 
