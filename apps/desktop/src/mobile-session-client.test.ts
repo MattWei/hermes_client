@@ -50,7 +50,7 @@ describe('createMobileSessionClient', () => {
     const client = createMobileSessionClient({ request: vi.fn() }, { get, patch: vi.fn(), remove: vi.fn() })
 
     await expect(client.list()).resolves.toEqual([
-      { id: 'stored-1', preview: 'Latest message', title: 'Existing chat', updatedAt: null }
+      { id: 'stored-1', pinned: false, preview: 'Latest message', title: 'Existing chat', updatedAt: null }
     ])
     expect(get).toHaveBeenCalledWith('/api/sessions?limit=40&offset=0&min_messages=1&archived=exclude&order=recent')
   })
@@ -66,10 +66,32 @@ describe('createMobileSessionClient', () => {
     const client = createMobileSessionClient({ request: vi.fn() }, { get, patch: vi.fn(), remove: vi.fn() })
 
     await expect(client.list()).resolves.toEqual([
-      { id: 'both', preview: null, title: 'Both', updatedAt: 2000 },
-      { id: 'started-only', preview: null, title: 'Started only', updatedAt: 3000 },
-      { id: 'neither', preview: null, title: 'Neither', updatedAt: null }
+      { id: 'both', pinned: false, preview: null, title: 'Both', updatedAt: 2000 },
+      { id: 'started-only', pinned: false, preview: null, title: 'Started only', updatedAt: 3000 },
+      { id: 'neither', pinned: false, preview: null, title: 'Neither', updatedAt: null }
     ])
+  })
+
+  it('reads the durable pin flag off each row', async () => {
+    const get = vi.fn(async () => new Response(JSON.stringify({
+      sessions: [
+        { id: 'pinned-1', pinned: true, preview: null, title: 'Kept' },
+        { id: 'plain-1', preview: null, title: 'Ordinary' }
+      ]
+    })))
+
+    const rows = await createMobileSessionClient({ request: vi.fn() }, { get, patch: vi.fn(), remove: vi.fn() }).list()
+
+    expect(rows.map(row => [row.id, row.pinned])).toEqual([['pinned-1', true], ['plain-1', false]])
+  })
+
+  it('pins a session over REST with the selected profile', async () => {
+    const patchFn = vi.fn(async () => new Response(JSON.stringify({ ok: true, pinned: true })))
+
+    await createMobileSessionClient({ request: vi.fn() }, { get: vi.fn(), patch: patchFn, remove: vi.fn() })
+      .setPinned('stored-20', true, 'shopify')
+
+    expect(patchFn).toHaveBeenCalledWith('/api/sessions/stored-20', { pinned: true, profile: 'shopify' })
   })
 
   it('rejects an invalid session-list response', async () => {

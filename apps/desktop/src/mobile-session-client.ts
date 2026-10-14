@@ -17,6 +17,8 @@ export interface MobileSessionIdentity {
 }
 
 export interface MobileSessionListItem {
+  /** Durable on the server; a pinned row is also back-filled past the page limit. */
+  pinned: boolean
   id: string
   preview: null | string
   title: null | string
@@ -170,6 +172,22 @@ export function createMobileSessionClient(gateway: MobileGatewayRequest, rest?: 
       const payload = await response.json() as { title?: unknown }
       return typeof payload.title === 'string' ? payload.title : trimmed
     },
+    /**
+     * Pin or unpin a session. The durable record is the row's own `pinned` column, which the list
+     * also reads back — the pin is what keeps an otherwise aged-out conversation reachable.
+     */
+    async setPinned(storedSessionId: string, pinned: boolean, profile?: string): Promise<void> {
+      if (!rest) {
+        throw new Error('Mobile session pin requires a REST client')
+      }
+      const response = await rest.patch(`/api/sessions/${encodeURIComponent(storedSessionId)}`, {
+        pinned,
+        ...(profile ? { profile } : {})
+      })
+      if (!response.ok) {
+        throw new Error(`Unable to ${pinned ? 'pin' : 'unpin'} the session (HTTP ${response.status})`)
+      }
+    },
     async list(profile?: string): Promise<MobileSessionListItem[]> {
       if (!rest) {
         throw new Error('Mobile session list requires a REST client')
@@ -180,13 +198,14 @@ export function createMobileSessionClient(gateway: MobileGatewayRequest, rest?: 
         throw new Error('Hermes returned an invalid session list')
       }
       return body.sessions.flatMap(item => {
-        const session = item as { id?: unknown, last_active?: unknown, preview?: unknown, started_at?: unknown, title?: unknown }
+        const session = item as { id?: unknown, last_active?: unknown, pinned?: unknown, preview?: unknown, started_at?: unknown, title?: unknown }
         if (typeof session.id !== 'string' || !session.id) {
           return []
         }
         const updatedAt = [session.last_active, session.started_at].find(value => typeof value === 'number' && Number.isFinite(value))
         return [{
           id: session.id,
+          pinned: session.pinned === true || session.pinned === 1,
           preview: typeof session.preview === 'string' ? session.preview : null,
           title: typeof session.title === 'string' ? session.title : null,
           updatedAt: typeof updatedAt === 'number' ? updatedAt : null

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { SearchField } from './components/ui/search-field'
 import {
@@ -23,6 +23,7 @@ interface IpadShellProps {
   onOpen: (storedSessionId: string) => void
   onRefresh: () => void
   onRename: (storedSessionId: string, title: string) => void
+  onSetPinned: (storedSessionId: string, pinned: boolean) => void
   onSelectProfile: (profile: string) => void
   profiles: MobileProfileSummary[]
   sessions: MobileSessionListItem[]
@@ -49,7 +50,7 @@ function sessionLabel(session: MobileSessionListItem): string {
 
 export function IpadShell({
   activeProfile, activeSessionId, activeTitle, children, connectionMessage, onCreate, onDelete, onDisconnect,
-  onOpen, onRefresh, onRename, onSelectProfile, profiles, sessions
+  onOpen, onRefresh, onRename, onSelectProfile, onSetPinned, profiles, sessions
 }: IpadShellProps) {
   const { t } = useI18n()
   const [query, setQuery] = useState('')
@@ -70,6 +71,28 @@ export function IpadShell({
     }
   }
 
+  // Dismiss the sheet on a press anywhere outside it. Pointer events (capture phase) cover touch,
+  // mouse and the row itself alike, so no scrim element is needed.
+  useEffect(() => {
+    if (menuFor === null) {
+      return
+    }
+    function dismiss(event: PointerEvent) {
+      const target = event.target as HTMLElement | null
+      if (target?.closest('[role="menu"]')) {
+        return
+      }
+      // A press on the row that owns the sheet must reach the press timer, which toggles it. Closing
+      // here first would make a second long press re-open what it just closed.
+      if (target?.closest(`[data-session-row="${menuFor}"]`)) {
+        return
+      }
+      setMenuFor(null)
+    }
+    document.addEventListener('pointerdown', dismiss, true)
+    return () => document.removeEventListener('pointerdown', dismiss, true)
+  }, [menuFor])
+
   function startPress(id: string) {
     cancelPress()
     pressHandled.current = false
@@ -85,9 +108,14 @@ export function IpadShell({
     const matching = needle
       ? sessions.filter(session => [session.title, session.preview, session.id].some(value => normalize(value).includes(needle)))
       : sessions
+    // Pins sit above the dated groups: the pin is what keeps an aged-out conversation reachable,
+    // so it has to be findable without knowing which bucket it fell into.
+    const pinned = matching.filter(session => session.pinned)
+    // A pinned row appears only in the Pinned group, never twice.
+    const datedRows = matching.filter(session => !session.pinned)
     const byBucket = new Map<string, SessionGroup>()
 
-    for (const session of matching) {
+    for (const session of datedRows) {
       const bucket = calendarBucket(session.updatedAt ?? 0)
       const group = byBucket.get(bucket.key)
 
@@ -98,7 +126,10 @@ export function IpadShell({
       }
     }
 
-    return [...byBucket.values()]
+    const dated = [...byBucket.values()]
+    return pinned.length > 0
+      ? [{ items: pinned, key: 'pinned', label: 'Pinned' }, ...dated]
+      : dated
   }, [sessions, query, t])
 
   return (
@@ -147,7 +178,7 @@ export function IpadShell({
                 <SidebarGroupContent>
                   <SidebarMenu>
                     {group.items.map(session => (
-                      <SidebarMenuItem className="relative" key={session.id}>
+                      <SidebarMenuItem className="relative" data-session-row={session.id} key={session.id}>
                         {renaming?.id === session.id
                           ? <form
                             className="px-1 py-0.5"
@@ -197,10 +228,33 @@ export function IpadShell({
                           >
                             <span className="min-w-0 flex-1 truncate text-left">{sessionLabel(session)}</span>
                           </SidebarMenuButton>}
+                        {renaming?.id !== session.id && <button
+                          aria-label={`Actions for ${sessionLabel(session)}`}
+                          className="absolute right-0.5 top-1/2 -translate-y-1/2 rounded-md px-1.5 py-0.5 text-[color:var(--ui-text-tertiary)]"
+                          onClick={event => {
+                            // The sheet is reachable without discovering the long press.
+                            event.stopPropagation()
+                            setMenuFor(current => current === session.id ? null : session.id)
+                          }}
+                          type="button"
+                        >
+                          ⋯
+                        </button>}
                         {menuFor === session.id && <div
                           className="absolute right-1 top-full z-50 flex flex-col rounded-lg border border-(--ui-stroke-tertiary) bg-[var(--ui-bg-primary)] py-1 shadow-lg"
                           role="menu"
                         >
+                          <button
+                            className="whitespace-nowrap px-4 py-1.5 text-left text-sm"
+                            onClick={() => {
+                              setMenuFor(null)
+                              onSetPinned(session.id, !session.pinned)
+                            }}
+                            role="menuitem"
+                            type="button"
+                          >
+                            {session.pinned ? 'Unpin' : 'Pin'}
+                          </button>
                           <button
                             className="whitespace-nowrap px-4 py-1.5 text-left text-sm"
                             onClick={() => {

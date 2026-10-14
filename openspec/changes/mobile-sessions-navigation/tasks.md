@@ -121,6 +121,14 @@
       methods resolve through the gateway's in-memory table (runtime ids): `session.title` answers
       4001 for a stored id, and `session.delete` refuses anything still held with 4023.
 - [x] H6 **Verified on hardware by the user**: rename and delete both work.
+- [x] H7 Pin / Unpin, on the row's durable `pinned` column (`PATCH`), with the pins collected into a
+      `Pinned` group above the dated ones — a pin that is not findable without knowing its bucket is
+      not a pin.
+- [x] H8 Dismiss the sheet on a press anywhere outside it (capture-phase `pointerdown`); a press on
+      the owning row is left to the press timer so a second long press toggles it shut.
+- [x] H9 A visible `⋯` trigger per row, so the sheet is reachable without discovering the long press.
+- [x] H10 Optimistic pin feedback: the row moves on tap, the cache is written in the same breath,
+      and a refused write rolls both back. The server row stays authoritative on every list.
 
 ## Phase I — layout
 

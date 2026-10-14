@@ -12,6 +12,7 @@ import { createMobileGatewayRestClient, type MobileGatewayRestClient, type Mobil
 import { createMobileRemoteLoginClient } from './mobile-remote-login'
 import { createMobileSessionClient, loadMobileSessionHistory, type MobileGatewayRequest, type MobileSessionListItem, type MobileSessionRest } from './mobile-session-client'
 import { createMobileProfileClient, type MobileProfileSummary } from './mobile-profile-client'
+import { mergePinsFromRows, readCachedPins, writeCachedPins } from './mobile-session-pins'
 import { createMobileToolActivityClient, type MobileToolActivity } from './mobile-tool-activity-client'
 import type { MobileGatewaySocketConfig } from './mobile-gateway-transport'
 import { parseMobileConnection, type MobileConnectionMode } from './mobile-connection'
@@ -257,19 +258,19 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
           if (fallback) {
             setActiveProfile(fallback)
             void createMobileSessionClient(connectedGateway, restClient).list(fallback)
-              .then(setSessions)
+              .then(rows => setSessions(rememberPins(fallback, rows)))
               .catch(() => {})
             return
           }
         }
         void createMobileSessionClient(connectedGateway, restClient).list(profile)
-          .then(setSessions)
+          .then(rows => setSessions(rememberPins(profile ?? '', rows)))
           .catch(() => {})
       })
       .catch(() => {
         // Profile discovery failed; the session list is still worth loading without one.
         void createMobileSessionClient(connectedGateway, restClient).list(profile)
-          .then(setSessions)
+          .then(rows => setSessions(rememberPins(profile ?? '', rows)))
           .catch(() => {})
       })
   }
@@ -312,6 +313,48 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
       await refreshSessions()
     } catch (error) {
       setConnectionMessage(error instanceof Error ? error.message : 'Unable to delete the session.')
+    }
+  }
+
+  /**
+   * Fold the server's authoritative pins into the local cache for the rows in this page. The rows
+   * themselves are returned untouched: the server row wins, and the cache is rewritten from it so a
+   * relaunch paints the same thing before the first list arrives.
+   */
+  function rememberPins(profile: string, rows: MobileSessionListItem[]): MobileSessionListItem[] {
+    mergePinsFromRows(profile, rows)
+    return rows
+  }
+
+  /**
+   * Pin/unpin paints immediately: the row moves as the finger lifts, and the request follows. The
+   * cache is written in the same breath so a relaunch shows the same thing, and a failed write
+   * rolls both back — the server remains the authority either way.
+   */
+  async function setSessionPinned(storedSessionId: string, pinned: boolean) {
+    if (!gateway || !rest) {
+      return
+    }
+    const profile = activeProfile || ''
+    const previous = sessions
+    const nextRows = sessions.map(row => row.id === storedSessionId ? { ...row, pinned } : row)
+    const nextCache = readCachedPins(profile)
+    if (pinned) {
+      nextCache.add(storedSessionId)
+    } else {
+      nextCache.delete(storedSessionId)
+    }
+
+    setSessions(nextRows)
+    writeCachedPins(profile, nextCache)
+
+    try {
+      await createMobileSessionClient(gateway, rest).setPinned(storedSessionId, pinned, activeProfile || undefined)
+      await refreshSessions()
+    } catch (error) {
+      setSessions(previous)
+      writeCachedPins(profile, mergePinsFromRows(profile, previous))
+      setConnectionMessage(error instanceof Error ? error.message : 'Unable to update the pin.')
     }
   }
 
@@ -385,7 +428,7 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
       return
     }
     try {
-      setSessions(await createMobileSessionClient(gateway, rest).list(activeProfile || undefined))
+      setSessions(rememberPins(activeProfile, await createMobileSessionClient(gateway, rest).list(activeProfile || undefined)))
     } catch (error) {
       setConnectionMessage(error instanceof Error ? error.message : 'Unable to load sessions')
     }
@@ -532,6 +575,7 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
           onOpen={storedSessionId => void openStoredSession(storedSessionId)}
           onRefresh={() => void refreshSessions()}
         onRename={(storedSessionId, title) => void renameStoredSession(storedSessionId, title)}
+        onSetPinned={(storedSessionId, pinned) => void setSessionPinned(storedSessionId, pinned)}
           sessions={sessions}
         >
           {view === 'session' && sessionLoading && <p className="py-10 text-sm text-[color:var(--ui-text-tertiary)]" role="status">Loading session…</p>}

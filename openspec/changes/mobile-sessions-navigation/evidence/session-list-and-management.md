@@ -140,6 +140,31 @@ conversation section present: no (empty session)
 composer top=1104 bottom=1168   gapBelowComposer=12   FIXED_AT_BOTTOM=true
 ```
 
+## Pins, and why the local cache is thin
+
+The desktop reconciles pins with the backend through a 297-line module (`store/session-pin-sync.ts`)
+that fences in-flight writes, collapses duplicate rows across profiles, guards re-entrancy and
+resets on a connection rescope. **None of that was ported**, because the conditions it defends
+against do not exist here: one connection, serial requests, no second writer. Porting it would have
+been speculative complexity in search of a problem.
+
+What the mobile client does instead is the part the user actually asked for:
+
+- **Immediate feedback** — the tap reorders the list before the request is issued.
+- **A per-profile cache** (`hermes.mobile.pinned.<profile>`) so a relaunch paints the same thing.
+  The key carries the profile because a session id is only unique inside one.
+- **Server authority** — a list response rewrites the cache from the rows it carries, and a refused
+  write rolls the UI and the cache back.
+
+One deliberate omission: the desktop distinguishes "this backend predates the flag" from "the
+backend says false" and keeps the local set in the former case. The mobile client does not. Its
+target backend carries `pinned`, so that compatibility rung has no rung to stand on.
+
+A test caught a real subtlety: the pin is applied optimistically and then `refreshSessions()` runs,
+whose response reflects the **already-updated** server state. A mock that kept answering
+`pinned: false` made the follow-up list silently undo the optimistic row — correct behaviour from
+correct code, which is why the fixture now models a server whose value actually changes.
+
 ## Two verification failures worth recording
 
 Both produced a confident "verified" that was not one. They are the reason the methods above changed.

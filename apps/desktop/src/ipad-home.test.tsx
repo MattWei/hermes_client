@@ -938,4 +938,265 @@ describe('IpadHome', () => {
     await waitFor(() => expect(patch).toHaveBeenCalledWith('/api/sessions/stored-5', { title: 'Trip planning' }))
   })
 
+  it('shows a pinned session in its own group above the dated ones', async () => {
+    const get = vi.fn(async (path: string) => {
+      if (path === '/api/profiles') {
+        return new Response(JSON.stringify({ profiles: [] }))
+      }
+      return new Response(JSON.stringify({
+        sessions: [
+          { id: 'pinned-1', pinned: true, preview: 'Kept around', title: null },
+          { id: 'plain-1', preview: 'Ordinary chat', title: null }
+        ]
+      }))
+    })
+
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request: vi.fn() }))} createRestClient={vi.fn(() => ({ get, patch: vi.fn(), post: vi.fn(), remove: vi.fn() }))} />)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'http://10.10.10.10:9119' } })
+    fireEvent.change(screen.getByLabelText('LAN session token'), { target: { value: 'lan-token' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I understand this LAN connection uses unencrypted HTTP and WS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Connect LAN gateway' }))
+
+    await waitFor(() => expect(screen.getByText('Pinned')).toBeTruthy())
+    // A pinned row belongs to the Pinned group only — never listed twice.
+    expect(screen.getAllByRole('button', { name: 'Open Kept around' })).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Open Ordinary chat' })).toBeTruthy()
+  })
+
+  it('pins a session from the action sheet', async () => {
+    const patchFn = vi.fn(async () => new Response(JSON.stringify({ ok: true, pinned: true })))
+    const get = vi.fn(async (path: string) => {
+      if (path === '/api/profiles') {
+        return new Response(JSON.stringify({ profiles: [] }))
+      }
+      return new Response(JSON.stringify({
+        sessions: [{ id: 'stored-30', pinned: false, preview: 'Trip planning', title: null }]
+      }))
+    })
+
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request: vi.fn() }))} createRestClient={vi.fn(() => ({ get, patch: patchFn, post: vi.fn(), remove: vi.fn() }))} />)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'http://10.10.10.10:9119' } })
+    fireEvent.change(screen.getByLabelText('LAN session token'), { target: { value: 'lan-token' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I understand this LAN connection uses unencrypted HTTP and WS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Connect LAN gateway' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open Trip planning' })).toBeTruthy())
+
+    // The sheet is also reachable from a visible trigger, not only the long press.
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Trip planning' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Pin' }))
+
+    await waitFor(() => expect(patchFn).toHaveBeenCalledWith('/api/sessions/stored-30', { pinned: true }))
+  })
+
+  it('dismisses the action sheet when pressing outside it', async () => {
+    const get = vi.fn(async (path: string) => {
+      if (path === '/api/profiles') {
+        return new Response(JSON.stringify({ profiles: [] }))
+      }
+      return new Response(JSON.stringify({
+        sessions: [{ id: 'stored-40', pinned: false, preview: 'Trip planning', title: null }]
+      }))
+    })
+
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request: vi.fn() }))} createRestClient={vi.fn(() => ({ get, patch: vi.fn(), post: vi.fn(), remove: vi.fn() }))} />)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'http://10.10.10.10:9119' } })
+    fireEvent.change(screen.getByLabelText('LAN session token'), { target: { value: 'lan-token' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I understand this LAN connection uses unencrypted HTTP and WS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Connect LAN gateway' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open Trip planning' })).toBeTruthy())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Trip planning' }))
+    expect(screen.getByRole('menu')).toBeTruthy()
+
+    // Anywhere outside closes it, not only another row.
+    fireEvent.pointerDown(document.body)
+    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+  })
+
+  it('keeps the action sheet open when pressing inside it', async () => {
+    const get = vi.fn(async (path: string) => {
+      if (path === '/api/profiles') {
+        return new Response(JSON.stringify({ profiles: [] }))
+      }
+      return new Response(JSON.stringify({
+        sessions: [{ id: 'stored-41', pinned: false, preview: 'Trip planning', title: null }]
+      }))
+    })
+
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request: vi.fn() }))} createRestClient={vi.fn(() => ({ get, patch: vi.fn(), post: vi.fn(), remove: vi.fn() }))} />)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'http://10.10.10.10:9119' } })
+    fireEvent.change(screen.getByLabelText('LAN session token'), { target: { value: 'lan-token' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I understand this LAN connection uses unencrypted HTTP and WS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Connect LAN gateway' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open Trip planning' })).toBeTruthy())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Trip planning' }))
+    const item = screen.getByRole('menuitem', { name: 'Pin' })
+
+    fireEvent.pointerDown(item)
+
+    expect(screen.getByRole('menu')).toBeTruthy()
+  })
+
+  it('closes the sheet on a second long press of the same row', async () => {
+    const get = vi.fn(async (path: string) => {
+      if (path === '/api/profiles') {
+        return new Response(JSON.stringify({ profiles: [] }))
+      }
+      return new Response(JSON.stringify({
+        sessions: [{ id: 'stored-50', pinned: false, preview: 'Trip planning', title: null }]
+      }))
+    })
+
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request: vi.fn() }))} createRestClient={vi.fn(() => ({ get, patch: vi.fn(), post: vi.fn(), remove: vi.fn() }))} />)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'http://10.10.10.10:9119' } })
+    fireEvent.change(screen.getByLabelText('LAN session token'), { target: { value: 'lan-token' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I understand this LAN connection uses unencrypted HTTP and WS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Connect LAN gateway' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open Trip planning' })).toBeTruthy())
+
+    const row = screen.getByRole('button', { name: 'Open Trip planning' })
+    fireEvent.pointerDown(row, { pointerType: 'touch' })
+    await waitFor(() => expect(screen.getByRole('menu')).toBeTruthy())
+
+    // Pressing the same row again must toggle it shut: the dismiss handler leaves that row's press
+    // to the timer, so the two do not fight.
+    fireEvent.pointerDown(row, { pointerType: 'touch' })
+    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+  })
+
+  it('moves a session into Pinned as soon as it is tapped, before the server answers', async () => {
+    const pendingResolvers: Array<(value: Response) => void> = []
+    const PATCH = vi.fn(() => new Promise<Response>(resolve => { pendingResolvers.push(resolve) }))
+
+    window.localStorage.clear()
+
+    // The list reflects whatever the server currently holds, so a pin that lands changes what the
+    // follow-up refresh reports — otherwise the refresh would overwrite the optimistic row.
+    const serverPinned = { value: false }
+    const get = vi.fn(async (path: string) => {
+      if (path === '/api/profiles') {
+        return new Response(JSON.stringify({ profiles: [] }))
+      }
+      return new Response(JSON.stringify({
+        sessions: [{ id: 'stored-60', pinned: serverPinned.value, preview: 'Trip planning', title: null }]
+      }))
+    })
+
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request: vi.fn() }))} createRestClient={vi.fn(() => ({ get, patch: PATCH, post: vi.fn(), remove: vi.fn() }))} />)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'http://10.10.10.10:9119' } })
+    fireEvent.change(screen.getByLabelText('LAN session token'), { target: { value: 'lan-token' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I understand this LAN connection uses unencrypted HTTP and WS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Connect LAN gateway' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open Trip planning' })).toBeTruthy())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Trip planning' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Pin' }))
+
+    // The request has not resolved, yet the row is already under Pinned.
+    await waitFor(() => expect(screen.getByText('Pinned')).toBeTruthy())
+
+    pendingResolvers.forEach(resolve => resolve(new Response(JSON.stringify({ ok: true, pinned: true }))))
+  })
+
+  it('writes the pin to the local cache so a relaunch paints it again', async () => {
+    const PATCH = vi.fn(async () => {
+      serverPinned.value = true
+      return new Response(JSON.stringify({ ok: true, pinned: true }))
+    })
+
+    window.localStorage.clear()
+
+    // The list reflects whatever the server currently holds, so a pin that lands changes what the
+    // follow-up refresh reports — otherwise the refresh would overwrite the optimistic row.
+    const serverPinned = { value: false }
+    const get = vi.fn(async (path: string) => {
+      if (path === '/api/profiles') {
+        return new Response(JSON.stringify({ profiles: [] }))
+      }
+      return new Response(JSON.stringify({
+        sessions: [{ id: 'stored-60', pinned: serverPinned.value, preview: 'Trip planning', title: null }]
+      }))
+    })
+
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request: vi.fn() }))} createRestClient={vi.fn(() => ({ get, patch: PATCH, post: vi.fn(), remove: vi.fn() }))} />)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'http://10.10.10.10:9119' } })
+    fireEvent.change(screen.getByLabelText('LAN session token'), { target: { value: 'lan-token' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I understand this LAN connection uses unencrypted HTTP and WS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Connect LAN gateway' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open Trip planning' })).toBeTruthy())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Trip planning' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Pin' }))
+
+    await waitFor(() => expect(PATCH).toHaveBeenCalled())
+    await waitFor(() => expect(JSON.parse(window.localStorage.getItem('hermes.mobile.pinned.default') ?? '[]'))
+      .toContain('stored-60'))
+  })
+
+  it('rolls a failed pin back out of the list', async () => {
+    const PATCH = vi.fn(async () => new Response('', { status: 500 }))
+
+    window.localStorage.clear()
+
+    // The list reflects whatever the server currently holds, so a pin that lands changes what the
+    // follow-up refresh reports — otherwise the refresh would overwrite the optimistic row.
+    const serverPinned = { value: false }
+    const get = vi.fn(async (path: string) => {
+      if (path === '/api/profiles') {
+        return new Response(JSON.stringify({ profiles: [] }))
+      }
+      return new Response(JSON.stringify({
+        sessions: [{ id: 'stored-60', pinned: serverPinned.value, preview: 'Trip planning', title: null }]
+      }))
+    })
+
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request: vi.fn() }))} createRestClient={vi.fn(() => ({ get, patch: PATCH, post: vi.fn(), remove: vi.fn() }))} />)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'http://10.10.10.10:9119' } })
+    fireEvent.change(screen.getByLabelText('LAN session token'), { target: { value: 'lan-token' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I understand this LAN connection uses unencrypted HTTP and WS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Connect LAN gateway' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open Trip planning' })).toBeTruthy())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Trip planning' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Pin' }))
+
+    // Painted optimistically, then reverted when the write was refused.
+    await waitFor(() => expect(screen.queryByText('Pinned')).toBeNull())
+    expect(screen.getByRole('button', { name: 'Open Trip planning' })).toBeTruthy()
+    expect(JSON.parse(window.localStorage.getItem('hermes.mobile.pinned.default') ?? '[]')).not.toContain('stored-60')
+  })
+
 })
