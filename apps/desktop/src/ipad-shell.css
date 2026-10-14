@@ -1,0 +1,20 @@
+/*
+ * iPadOS keeps `:hover` on the last-touched element and never clears it, because there is no
+ * pointer to move away. The session list reuses DOM nodes as rows reorder (unpinning moves one
+ * into the dated groups), so a stuck hover stays on the node itself and ends up belonging to
+ * whichever conversation now occupies that slot — it reads as a row being selected when the user
+ * never selected it.
+ *
+ * No media query guards this: `hover: none` is not dependable on iPadOS, which reports hover
+ * support for the trackpad and pointer accessories it can drive, and the mobile entry point alone
+ * imports this file, so the desktop shell is unaffected either way.
+ *
+ * The `:not([data-active='true'])` is load-bearing. Because a stuck hover never clears, the row the
+ * user is actually reading matches BOTH `:hover` and `data-active`; without the exclusion these
+ * declarations would out-rank the active styling (`!important` beats it) and the open conversation
+ * would lose its background, keeping only `font-medium` as a marker.
+ */
+[data-slot='sidebar-menu-button']:not([data-active='true']):hover {
+  background-color: transparent !important;
+  color: inherit !important;
+}

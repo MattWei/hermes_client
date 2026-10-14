@@ -77,20 +77,15 @@ export function IpadShell({
     if (menuFor === null) {
       return
     }
-    function dismiss(event: PointerEvent) {
+    function dismiss(event: MouseEvent) {
       const target = event.target as HTMLElement | null
       if (target?.closest('[role="menu"]')) {
         return
       }
-      // A press on the row that owns the sheet must reach the press timer, which toggles it. Closing
-      // here first would make a second long press re-open what it just closed.
-      if (target?.closest(`[data-session-row="${menuFor}"]`)) {
-        return
-      }
       setMenuFor(null)
     }
-    document.addEventListener('pointerdown', dismiss, true)
-    return () => document.removeEventListener('pointerdown', dismiss, true)
+    document.addEventListener('click', dismiss)
+    return () => document.removeEventListener('click', dismiss)
   }, [menuFor])
 
   function startPress(id: string) {
@@ -178,7 +173,7 @@ export function IpadShell({
                 <SidebarGroupContent>
                   <SidebarMenu>
                     {group.items.map(session => (
-                      <SidebarMenuItem className="relative" data-session-row={session.id} key={session.id}>
+                      <SidebarMenuItem className="relative" key={session.id}>
                         {renaming?.id === session.id
                           ? <form
                             className="px-1 py-0.5"
@@ -235,6 +230,10 @@ export function IpadShell({
                             // The sheet is reachable without discovering the long press.
                             event.stopPropagation()
                             setMenuFor(current => current === session.id ? null : session.id)
+                            // Do not keep focus on the trigger: the menu button paints its focus ring
+                            // with the same background as the active row, and the list reorders
+                            // under it, so a retained focus reads as a second row being selected.
+                            event.currentTarget.blur()
                           }}
                           type="button"
                         >
@@ -246,7 +245,8 @@ export function IpadShell({
                         >
                           <button
                             className="whitespace-nowrap px-4 py-1.5 text-left text-sm"
-                            onClick={() => {
+                            onClick={event => {
+                              event.currentTarget.blur()
                               setMenuFor(null)
                               onSetPinned(session.id, !session.pinned)
                             }}
@@ -268,7 +268,8 @@ export function IpadShell({
                           </button>
                           <button
                             className="whitespace-nowrap px-4 py-1.5 text-left text-sm"
-                            onClick={() => {
+                            onClick={event => {
+                              event.currentTarget.blur()
                               setMenuFor(null)
                               onDelete(session.id)
                             }}

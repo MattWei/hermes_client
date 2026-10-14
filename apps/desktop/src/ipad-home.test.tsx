@@ -1021,7 +1021,7 @@ describe('IpadHome', () => {
     expect(screen.getByRole('menu')).toBeTruthy()
 
     // Anywhere outside closes it, not only another row.
-    fireEvent.pointerDown(document.body)
+    fireEvent.click(document.body)
     await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
   })
 
@@ -1047,9 +1047,8 @@ describe('IpadHome', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Open Trip planning' })).toBeTruthy())
 
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Trip planning' }))
-    const item = screen.getByRole('menuitem', { name: 'Pin' })
-
-    fireEvent.pointerDown(item)
+    // Clicking the sheet itself (not one of its items, which would run the action) must not dismiss.
+    fireEvent.click(screen.getByRole('menu'))
 
     expect(screen.getByRole('menu')).toBeTruthy()
   })
@@ -1079,8 +1078,8 @@ describe('IpadHome', () => {
     fireEvent.pointerDown(row, { pointerType: 'touch' })
     await waitFor(() => expect(screen.getByRole('menu')).toBeTruthy())
 
-    // Pressing the same row again must toggle it shut: the dismiss handler leaves that row's press
-    // to the timer, so the two do not fight.
+    // Pressing the same row again toggles it shut. Dismissal listens for `click`, which a long
+    // press suppresses, so the two never fight over the same gesture.
     fireEvent.pointerDown(row, { pointerType: 'touch' })
     await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
   })
@@ -1197,6 +1196,50 @@ describe('IpadHome', () => {
     await waitFor(() => expect(screen.queryByText('Pinned')).toBeNull())
     expect(screen.getByRole('button', { name: 'Open Trip planning' })).toBeTruthy()
     expect(JSON.parse(window.localStorage.getItem('hermes.mobile.pinned.default') ?? '[]')).not.toContain('stored-60')
+  })
+
+  it('leaves only the open session marked active after an unpin reorders the list', async () => {
+    // The menu button paints its focus ring with the same background as the active row, so a focus
+    // retained across the reorder reads as a second row being selected.
+    const serverPinned = { value: true }
+    const get = vi.fn(async (path: string) => {
+      if (path === '/api/profiles') {
+        return new Response(JSON.stringify({ profiles: [] }))
+      }
+      return new Response(JSON.stringify({
+        sessions: [
+          { id: 'stored-70', pinned: serverPinned.value, preview: 'Pinned chat', title: null },
+          { id: 'stored-71', pinned: false, preview: 'Ordinary chat', title: null }
+        ]
+      }))
+    })
+    const patchFn = vi.fn(async () => {
+      serverPinned.value = false
+      return new Response(JSON.stringify({ ok: true, pinned: false }))
+    })
+
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request: vi.fn() }))} createRestClient={vi.fn(() => ({ get, patch: patchFn, post: vi.fn(), remove: vi.fn() }))} />)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'http://10.10.10.10:9119' } })
+    fireEvent.change(screen.getByLabelText('LAN session token'), { target: { value: 'lan-token' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I understand this LAN connection uses unencrypted HTTP and WS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Connect LAN gateway' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open Pinned chat' })).toBeTruthy())
+
+    // Nothing is open, so nothing is active to begin with.
+    const active = () => document.querySelectorAll('[data-slot="sidebar-menu-button"][data-active="true"]')
+    expect(active()).toHaveLength(0)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Pinned chat' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Unpin' }))
+
+    // After the reorder the row is still not the open session, so it must not be marked active.
+    await waitFor(() => expect(patchFn).toHaveBeenCalled())
+    expect(active()).toHaveLength(0)
+    expect((document.activeElement as HTMLElement | null)?.getAttribute('data-slot')).not.toBe('sidebar-menu-button')
   })
 
 })
