@@ -165,6 +165,36 @@ whose response reflects the **already-updated** server state. A mock that kept a
 `pinned: false` made the follow-up list silently undo the optimistic row — correct behaviour from
 correct code, which is why the fixture now models a server whose value actually changes.
 
+## The stuck hover, and a fix that was half-right
+
+iPadOS leaves `:hover` on the last-touched element and never clears it — there is no pointer to
+move away. The list reuses DOM nodes as rows reorder (unpinning moves one out of `Pinned` into the
+dated groups), so the stuck hover stayed on the node and belonged to whichever conversation now
+occupied that slot. The user saw a **second** row painted as selected, fixed in position, unrelated
+to which row they had acted on.
+
+Three wrong hypotheses were discarded along the way, each by a measurement rather than by argument:
+
+| Hypothesis | What ruled it out |
+| --- | --- |
+| `isActive` matched the wrong row | The probe read `data-active="false"` on every row, `COUNT=0` |
+| Focus was retained on a row | The user reported the highlight was at a **fixed position**; focus cannot do that |
+| `data-session-row` would let the guard find the row | The probe found **no such attribute in the DOM**: `SidebarMenuItem` does not forward unknown `data-*` props, so that guard had never matched |
+
+That third one was a real defect inside a fix of mine, and it is why dismissal now listens for
+`click` rather than `pointerdown`: a long press suppresses its trailing click, so the press timer
+owns its own gesture and no row marker is needed at all.
+
+**The first hover fix was half-right and shipped as such.** It suppressed hover with `!important`
+but did not exclude the active row. Because a stuck hover never clears, the row the user is reading
+matches **both** `:hover` and `data-active`, so the suppression out-ranked the active styling: the
+open conversation kept only `font-medium` and lost its background. Fixing it needed the two rules to
+be **mutually exclusive** (`:not([data-active='true'])`) rather than one overriding the other.
+
+The lesson is narrower than "test more": when two states share one visual token, suppressing one
+state has to be scoped to exclude the other, and the check for that is to look at the *still-correct*
+case, not only at the symptom being removed.
+
 ## Two verification failures worth recording
 
 Both produced a confident "verified" that was not one. They are the reason the methods above changed.

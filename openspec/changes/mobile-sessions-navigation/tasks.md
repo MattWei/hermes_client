@@ -129,6 +129,12 @@
 - [x] H9 A visible `⋯` trigger per row, so the sheet is reachable without discovering the long press.
 - [x] H10 Optimistic pin feedback: the row moves on tap, the cache is written in the same breath,
       and a refused write rolls both back. The server row stays authoritative on every list.
+- [x] H11 iPadOS never clears `:hover` from the last-touched element, and the list reuses DOM nodes
+      as rows reorder — so a stuck hover surfaced as a **second** row painted as selected. Suppress
+      hover on non-active rows only (`:not([data-active='true'])`); without the exclusion the
+      suppression out-ranks the active styling and the open conversation loses its background.
+      No media query: `hover: none` is unreliable on iPadOS, which reports hover for trackpad and
+      pointer accessories.
 
 ## Phase I — layout
 
