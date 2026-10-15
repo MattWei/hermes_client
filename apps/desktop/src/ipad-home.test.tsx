@@ -1242,4 +1242,82 @@ describe('IpadHome', () => {
     expect((document.activeElement as HTMLElement | null)?.getAttribute('data-slot')).not.toBe('sidebar-menu-button')
   })
 
+  it('reopens the conversation that was open when the app was last used', async () => {
+    const ID = 'stored-70'
+    const RESUMES_OK = true
+    window.localStorage.clear()
+
+    window.localStorage.setItem('hermes.mobile.last-session.default', ID)
+
+    const get = vi.fn(async (path: string) => {
+      if (path === '/api/profiles') {
+        return new Response(JSON.stringify({ profiles: [] }))
+      }
+      if (path.includes('/messages')) {
+        return new Response(JSON.stringify({
+          messages: [{ content: 'Where we left off', role: 'assistant', timestamp: 1 }],
+          session_id: ID
+        }))
+      }
+      return new Response(JSON.stringify({
+        sessions: [{ id: ID, pinned: false, preview: 'Trip planning', title: null }]
+      }))
+    })
+    const request = vi.fn(async (method: string) => method === 'session.resume'
+      ? (RESUMES_OK ? { session_id: 'runtime-1', session_key: ID, stored_session_id: ID } : Promise.reject(new Error('session not found')))
+      : {})
+
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request }))} createRestClient={vi.fn(() => ({ get, patch: vi.fn(), post: vi.fn(), remove: vi.fn() }))} />)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'http://10.10.10.10:9119' } })
+    fireEvent.change(screen.getByLabelText('LAN session token'), { target: { value: 'lan-token' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I understand this LAN connection uses unencrypted HTTP and WS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Connect LAN gateway' }))
+
+    // Nothing was tapped: the remembered session opens on its own, transcript and all.
+    await waitFor(() => expect(screen.getByText('Where we left off')).toBeTruthy())
+  })
+
+  it('stays on the list and drops the hint when that session is gone', async () => {
+    const ID = 'stored-gone'
+    const RESUMES_OK = false
+    window.localStorage.clear()
+    window.localStorage.setItem('hermes.mobile.last-session.default', ID)
+
+    const get = vi.fn(async (path: string) => {
+      if (path === '/api/profiles') {
+        return new Response(JSON.stringify({ profiles: [] }))
+      }
+      if (path.includes('/messages')) {
+        return new Response(JSON.stringify({
+          messages: [{ content: 'Where we left off', role: 'assistant', timestamp: 1 }],
+          session_id: ID
+        }))
+      }
+      return new Response(JSON.stringify({
+        sessions: [{ id: ID, pinned: false, preview: 'Trip planning', title: null }]
+      }))
+    })
+    const request = vi.fn(async (method: string) => method === 'session.resume'
+      ? (RESUMES_OK ? { session_id: 'runtime-1', session_key: ID, stored_session_id: ID } : Promise.reject(new Error('session not found')))
+      : {})
+
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request }))} createRestClient={vi.fn(() => ({ get, patch: vi.fn(), post: vi.fn(), remove: vi.fn() }))} />)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'http://10.10.10.10:9119' } })
+    fireEvent.change(screen.getByLabelText('LAN session token'), { target: { value: 'lan-token' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I understand this LAN connection uses unencrypted HTTP and WS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Connect LAN gateway' }))
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open Trip planning' })).toBeTruthy())
+    // The stale id is forgotten so the next launch does not retry it.
+    await waitFor(() => expect(window.localStorage.getItem('hermes.mobile.last-session.default')).toBeNull())
+  })
+
 })

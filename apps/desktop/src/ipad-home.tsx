@@ -12,6 +12,7 @@ import { createMobileGatewayRestClient, type MobileGatewayRestClient, type Mobil
 import { createMobileRemoteLoginClient } from './mobile-remote-login'
 import { createMobileSessionClient, loadMobileSessionHistory, MobileSessionAuthError, type MobileGatewayRequest, type MobileSessionListItem, type MobileSessionRest } from './mobile-session-client'
 import { createMobileProfileClient, type MobileProfileSummary } from './mobile-profile-client'
+import { forgetLastSession, readLastSession, rememberLastSession } from './mobile-last-session'
 import { mergePinsFromRows, readCachedPins, writeCachedPins } from './mobile-session-pins'
 import { createMobileToolActivityClient, type MobileToolActivity } from './mobile-tool-activity-client'
 import type { MobileGatewaySocketConfig } from './mobile-gateway-transport'
@@ -49,6 +50,8 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [activeStoredSessionId, setActiveStoredSessionId] = useState<string | null>(null)
   const activeSessionRef = useRef({ runtimeSessionId: null as string | null, storedSessionId: null as string | null })
+  // One restore attempt per mounted surface: a later list refresh must not reopen what the user closed.
+  const restoreAttempted = useRef(false)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [draft, setDraft] = useState('')
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
@@ -304,6 +307,7 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
     try {
       await createMobileSessionClient(gateway, rest).remove(storedSessionId, activeProfile || undefined)
       if (activeStoredSessionId === storedSessionId) {
+        forgetLastSession(activeProfile)
         activeSessionRef.current = { runtimeSessionId: null, storedSessionId: null }
         setSessionId(null)
         setActiveStoredSessionId(null)
@@ -321,6 +325,15 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
    * themselves are returned untouched: the server row wins, and the cache is rewritten from it so a
    * relaunch paints the same thing before the first list arrives.
    */
+  /**
+   * Return to the conversation that was open when the app was last used.
+   *
+   * The remembered id is a hint, not a fact: a session deleted elsewhere (or one whose profile is
+   * no longer selected) simply fails to resume and the surface stays on the list — and the hint is
+   * dropped so the next launch does not retry it. Skipped when something is already open, so a
+   * reconnect does not yank the user out of what they are reading.
+   */
+
   function rememberPins(profile: string, rows: MobileSessionListItem[]): MobileSessionListItem[] {
     mergePinsFromRows(profile, rows)
     return rows
@@ -388,6 +401,9 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
 
   function disconnectGateway() {
     gateway?.close()
+    // An explicit sign-out means the next launch starts clean; the surface has no conversation to
+    // return to.
+    forgetLastSession(activeProfile)
     resetGatewayState('Gateway disconnected.')
   }
 
@@ -460,7 +476,7 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
     }
   }
 
-  async function openStoredSession(storedSessionId: string) {
+  async function openStoredSession(storedSessionId: string, options?: { forgetOnFailure?: boolean }) {
     if (!gateway || !rest) {
       return
     }
@@ -474,14 +490,37 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
       setSessionId(session.runtimeSessionId)
       setActiveStoredSessionId(session.storedSessionId)
       setMessages(session.messages)
+      rememberLastSession(activeProfile, session.storedSessionId)
       setConnectionMessage(`Session ${session.storedSessionId} resumed.`)
     } catch (error) {
+      if (options?.forgetOnFailure) {
+        // A remembered id that no longer resolves must not be retried on every launch. A manual
+        // tap keeps it: the user may simply want to try again.
+        forgetLastSession(activeProfile)
+      }
       setView('list')
       setConnectionMessage(error instanceof Error ? error.message : 'Unable to resume session')
     } finally {
       setSessionLoading(false)
     }
   }
+
+  // Return to the conversation that was open when the app was last used, once — and only once the
+  // surface can actually act on it. Reading `rest` inside the list callback was unreliable: the
+  // state may not have landed yet, and the resume would bail out before it could drop a stale id.
+  useEffect(() => {
+    if (restoreAttempted.current || !gateway || !rest || sessions.length === 0) {
+      return
+    }
+    if (activeSessionRef.current.storedSessionId) {
+      return
+    }
+    restoreAttempted.current = true
+    const last = readLastSession(activeProfile)
+    if (last) {
+      void openStoredSession(last, { forgetOnFailure: true })
+    }
+  }, [activeProfile, gateway, rest, sessions])
 
   async function startNewSession() {
     if (!gateway) {
