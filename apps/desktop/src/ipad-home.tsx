@@ -401,9 +401,8 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
 
   function disconnectGateway() {
     gateway?.close()
-    // An explicit sign-out means the next launch starts clean; the surface has no conversation to
-    // return to.
-    forgetLastSession(activeProfile)
+    // Signing out drops the connection, not the place: reconnecting (the next launch reconnects on
+    // its own) returns to the conversation the user was reading before.
     resetGatewayState('Gateway disconnected.')
   }
 

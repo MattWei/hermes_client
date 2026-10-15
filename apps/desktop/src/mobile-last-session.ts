@@ -8,6 +8,9 @@
  * Only ever a hint. The id is resolved through the gateway on launch, so a session deleted
  * elsewhere, or one whose profile is no longer selected, simply fails to resume and the surface
  * stays on the list.
+ *
+ * Signing out deliberately does not clear it: that drops the connection, not the place. The next
+ * launch reconnects and returns to the conversation the user was reading.
  */
 
 const STORAGE_PREFIX = 'hermes.mobile.last-session.'

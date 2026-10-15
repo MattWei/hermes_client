@@ -25,7 +25,7 @@ describe('last opened session', () => {
     expect(readLastSession('shopify')).toBeNull()
   })
 
-  it('forgets on demand, so a sign-out starts clean', () => {
+  it('forgets on demand, when the session is deleted or the id no longer resolves', () => {
     rememberLastSession('shopify', 'stored-2')
     forgetLastSession('shopify')
 

@@ -1320,4 +1320,46 @@ describe('IpadHome', () => {
     await waitFor(() => expect(window.localStorage.getItem('hermes.mobile.last-session.default')).toBeNull())
   })
 
+  it('keeps the remembered conversation across a sign-out', async () => {
+    // Signing out drops the connection, not the place: the next launch reconnects on its own and
+    // returns to the conversation the user was reading.
+    const ID = 'stored-80'
+    window.localStorage.clear()
+    const get = vi.fn(async (path: string) => {
+      if (path === '/api/profiles') {
+        return new Response(JSON.stringify({ profiles: [] }))
+      }
+      if (path.includes('/messages')) {
+        return new Response(JSON.stringify({
+          messages: [{ content: 'Read this', role: 'assistant', timestamp: 1 }],
+          session_id: ID
+        }))
+      }
+      return new Response(JSON.stringify({
+        sessions: [{ id: ID, pinned: false, preview: 'Trip planning', title: null }]
+      }))
+    })
+    const request = vi.fn(async (method: string) => method === 'session.resume'
+      ? { session_id: 'runtime-1', session_key: ID, stored_session_id: ID }
+      : {})
+
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request }))} createRestClient={vi.fn(() => ({ get, patch: vi.fn(), post: vi.fn(), remove: vi.fn() }))} />)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'http://10.10.10.10:9119' } })
+    fireEvent.change(screen.getByLabelText('LAN session token'), { target: { value: 'lan-token' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I understand this LAN connection uses unencrypted HTTP and WS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Connect LAN gateway' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open Trip planning' })).toBeTruthy())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Trip planning' }))
+    await waitFor(() => expect(window.localStorage.getItem('hermes.mobile.last-session.default')).toBe(ID))
+
+    fireEvent.click(screen.getByRole('button', { name: 'logout' }))
+
+    expect(window.localStorage.getItem('hermes.mobile.last-session.default')).toBe(ID)
+  })
+
 })
