@@ -978,6 +978,36 @@ describe('IpadHome', () => {
     expect(screen.getByLabelText('Attach file')).toBeTruthy()
   })
 
+  it('shows the microphone while the draft is empty and the send arrow once there is text', async () => {
+    const request = vi.fn(async (method: string) => method === 'session.create'
+      ? { session_id: 'runtime-8', stored_session_id: 'stored-8' }
+      : { status: 'accepted' })
+    await openNewSessionForComposer(request)
+
+    expect(screen.getByRole('button', { name: 'Record a voice message' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Send message' })).toBeNull()
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message composer' }), { target: { value: 'hi' } })
+
+    expect(screen.getByRole('button', { name: 'Send message' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Record a voice message' })).toBeNull()
+  })
+
+  it('says why it cannot record instead of looking broken', async () => {
+    // jsdom has no MediaRecorder, which is the shape of a WebView that refuses it too. The failure
+    // has to reach the status line: a button that does nothing visible reads as a dead control.
+    const request = vi.fn(async (method: string) => method === 'session.create'
+      ? { session_id: 'runtime-9b', stored_session_id: 'stored-9b' }
+      : { status: 'accepted' })
+    await openNewSessionForComposer(request)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Record a voice message' }))
+
+    await waitFor(() => expect(screen.getByText('This device cannot record audio')).toBeTruthy())
+    // Still idle, so the button is still there to retry.
+    expect(screen.getByRole('button', { name: 'Record a voice message' })).toBeTruthy()
+  })
+
   it('adopts the gateway default profile and loads that store on connect', async () => {
     const requested: string[] = []
     const get = vi.fn(async (path: string) => {

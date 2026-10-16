@@ -27,7 +27,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Take a photo to attach it to your Hermes conversation.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Record a video to attach it to your Hermes conversation.</string>
+	<string>Record your voice to dictate a message to Hermes.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Select a photo or video to attach it to your Hermes conversation.</string>
 	<key>NSLocalNetworkUsageDescription</key>

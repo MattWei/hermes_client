@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 
 import { createMobileApprovalClient, type MobileApprovalRequest } from './mobile-approval-client'
 import { createMobileAttachmentClient, type MobileFileAttachment } from './mobile-attachment-client'
+import { createMobileDictationClient } from './mobile-dictation-client'
 import { mobileCredentialStore } from './capacitor-mobile-credential-store'
 import { connectMobileGateway } from './mobile-gateway-client'
 import { assistantTextPart, appendAssistantTextPart, mergeFinalAssistantText, textPart, type ChatMessage } from './lib/chat-messages'
@@ -15,10 +16,11 @@ import { createMobileProfileClient, type MobileProfileSummary } from './mobile-p
 import { forgetLastSession, readLastSession, rememberLastSession } from './mobile-last-session'
 import { mergePinsFromRows, readCachedPins, writeCachedPins } from './mobile-session-pins'
 import { createMobileToolActivityClient, type MobileToolActivity } from './mobile-tool-activity-client'
+import { createMobileVoiceRecorder, readableMicrophoneError, type MobileVoiceRecorder } from './mobile-voice-recorder'
 import type { MobileGatewaySocketConfig } from './mobile-gateway-transport'
 import { parseMobileConnection, type MobileConnectionMode } from './mobile-connection'
 import { Codicon } from './components/ui/codicon'
-import { IpadSessionDetail } from './ipad-session-detail'
+import { IpadSessionDetail, type MobileVoiceState } from './ipad-session-detail'
 import { IpadShell, sessionLabel } from './ipad-shell'
 
 interface IpadHomeProps {
@@ -45,7 +47,7 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
   const [lanRiskConfirmed, setLanRiskConfirmed] = useState(false)
   const [connectionMessage, setConnectionMessage] = useState('')
   const [gateway, setGateway] = useState<(MobileGatewayRequest & MobilePromptGateway & { close(): void; onState?: (handler: (state: string) => void) => () => void }) | null>(null)
-  const [rest, setRest] = useState<MobileSessionRest | null>(null)
+  const [rest, setRest] = useState<MobileGatewayRestClient | null>(null)
   const [sessions, setSessions] = useState<MobileSessionListItem[]>([])
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [activeStoredSessionId, setActiveStoredSessionId] = useState<string | null>(null)
@@ -54,6 +56,8 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
   const restoreAttempted = useRef(false)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [draft, setDraft] = useState('')
+  const [voiceState, setVoiceState] = useState<MobileVoiceState>('idle')
+  const voiceRecorderRef = useRef<MobileVoiceRecorder | null>(null)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [approval, setApproval] = useState<MobileApprovalRequest | null>(null)
   const [toolActivities, setToolActivities] = useState<MobileToolActivity[]>([])
@@ -632,6 +636,56 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
     }
   }
 
+  /**
+   * Two taps, not press-and-hold: a hold gesture fights the scroll on a touch surface and gives no
+   * way to see that it is live, while tapping again is unambiguous and the icon shows the state.
+   *
+   * The transcript lands in the draft rather than going straight out, so what was heard can be
+   * corrected before it reaches the model.
+   */
+  async function toggleVoiceInput() {
+    if (!rest) {
+      return
+    }
+
+    if (voiceState !== 'recording') {
+      try {
+        const recorder = createMobileVoiceRecorder()
+        await recorder.start()
+        voiceRecorderRef.current = recorder
+        setVoiceState('recording')
+        setConnectionMessage('Recording… tap the button again to stop.')
+      } catch (error) {
+        voiceRecorderRef.current = null
+        setVoiceState('idle')
+        setConnectionMessage(readableMicrophoneError(error).message)
+      }
+      return
+    }
+
+    const recorder = voiceRecorderRef.current
+    voiceRecorderRef.current = null
+    setVoiceState('transcribing')
+    try {
+      const recording = await recorder?.stop() ?? null
+      if (!recording) {
+        setVoiceState('idle')
+        return
+      }
+      const transcript = await createMobileDictationClient(rest).transcribe(recording, activeProfile || undefined)
+      setVoiceState('idle')
+      if (!transcript) {
+        // Silence is a normal outcome here, not a failure — say so rather than leaving a blank answer.
+        setConnectionMessage('No speech detected.')
+        return
+      }
+      setDraft(current => (current.trim() ? `${current.trim()} ${transcript}` : transcript))
+    } catch (error) {
+      setVoiceState('idle')
+      setConnectionMessage(error instanceof Error ? error.message : 'Unable to transcribe the recording')
+    }
+  }
+
   // Title of the session shown in the inset; null while no session is open. The sidebar's chain, so
   // a session the backend never auto-titled reads as its preview in both places. A brand-new session
   // has no row yet — the backend persists one only on the first turn — and has to keep a label
@@ -671,9 +725,11 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
             onFilesChange={setPendingFiles}
             onRespondToApproval={choice => void respondToApproval(choice)}
             onSubmit={submitMessage}
+            onVoiceInput={() => void toggleVoiceInput()}
             pendingFiles={pendingFiles}
             sessionId={sessionId}
             toolActivities={toolActivities}
+            voiceState={voiceState}
           />}
 
           {view !== 'session' && <p className="py-10 text-sm text-[color:var(--ui-text-tertiary)]">Select a session, or start a new one.</p>}

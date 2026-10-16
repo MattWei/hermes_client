@@ -45,26 +45,40 @@ and the test caught it.
 
 `48 passed`, `typecheck` exit 0, no unhandled errors.
 
-## Still open: what the microphone button does
+## The microphone button
 
-Desktop's mic is not a composer-side record key — it sits in the **voice-conversation** cluster
-(`app/chat/composer/controls.tsx`: wake word, mic mute, stop turn, end conversation), which is a
-subsystem of its own rather than a button to copy.
+**The user chose the layout**: the right-hand control switches on content — the microphone while the
+field is empty, `arrow-up` (the desktop composer's own send glyph, `controls.tsx`) once there is text.
 
-The remote gateway does expose the pieces a recording path needs over the same HTTPS connection:
+**The behaviour is dictation**, chosen here because the layout implies it and a mic button with
+nothing behind it is a dead control: record → transcribe → the transcript lands in the *draft*, so
+what was heard can be corrected before it reaches the model. A voice message and the desktop's full
+voice conversation (wake word, continuous listening, TTS replies) remain larger, separate options.
 
-```text
-GET  /api/audio/voice-config    -> which STT/TTS provider, and whether it must run on the gateway
-POST /api/audio/transcribe      -> {data_url: "data:audio/…;base64,…", mime_type} -> {ok, transcript, provider}
-```
+Two taps rather than press-and-hold: a hold gesture fights the scroll on a touch surface and gives no
+way to see that it is live, while a second tap is unambiguous and the icon shows the state
+(`mic` → `record`).
 
-So "record → text" is reachable. Two unknowns keep it from being a straight port, and they are why
-it was **not** implemented blind: `getUserMedia`/`MediaRecorder` behaviour inside WKWebView, and the
-app-level microphone grant (`NSMicrophoneUsageDescription` plus Capacitor's permission plumbing) —
-the same class of gap that made the simulator green while the device refused LAN connections.
+### De-risked before writing it
 
-Options put to the user, with the layout question attached: spike the recording path first
-(recommended, and the user's stated preference for unknown-capability work), dictate into the field,
-send a voice message as an attachment, or take the whole voice conversation. For the right-hand
-side: switch on content (mic when empty, Send when typing), keep both, or drop Send entirely now
-that Enter sends.
+| Unknown | Answer |
+| --- | --- |
+| Does the WebView refuse `getUserMedia`? | No. Capacitor 8.5's `WebViewDelegationHandler` already implements `requestMediaCapturePermissionFor` and answers `.grant`, so the iOS 15+ gate that would silently deny the page is open. |
+| Does the app declare a microphone reason? | It did, but the copy described recording **video** ("Record a video to attach it…"). Corrected to describe a voice input. |
+| Can iOS record WebM? | No — so the recorder asks for `audio/mp4` first and only falls back to WebM/Opus, which is what a Chromium WebView wants. A hardcoded `audio/webm` records nothing on iOS. |
+
+The gateway side was already there: `POST /api/audio/transcribe` takes base64 in a `data:` URL and
+returns `{ok, transcript, provider}`, and voice config resolves per profile, so the profile rides
+along like every other lookup.
+
+### Still unproven
+
+**The recording leg on the device.** `getUserMedia` + `MediaRecorder` inside WKWebView on iPadOS is
+the part a build cannot answer, and it needs a real tap. That is why the failure path is deliberately
+loud: a refusal lands on the status line with its reason (`Microphone access was denied`,
+`This device cannot record audio`, …) instead of leaving a button that looks broken. A tap that
+produces text proves the path; a tap that produces a sentence proves where it stops.
+
+Vitest runs it too, incidentally: jsdom has no `MediaRecorder`, so the suite exercises exactly the
+"cannot record" branch and asserts the message appears.
+

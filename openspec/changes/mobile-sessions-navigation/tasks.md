@@ -240,13 +240,21 @@
       half-typed text at the model.
 - [x] N4 The attach control is a `+` icon instead of the word `Attach`, still the same `<label>` bound
       to the same file input and still named `Attach file` for assistive use.
-- [ ] N5 **A microphone button on the right — blocked on a decision the user has not given yet.**
-      Desktop's mic belongs to its voice-conversation cluster (`composer/controls.tsx`), not to the
-      composer row; the gateway does offer `POST /api/audio/transcribe` and `GET /api/audio/voice-config`,
-      so a record → text path is reachable. Not implemented blind because two things are unproven —
-      `getUserMedia`/`MediaRecorder` inside WKWebView, and the app-level microphone grant — and because
-      whether the mic replaces Send, sits beside it, or Send is dropped now that Enter sends is the
-      user's call. Options and the bundle-verification greps: `evidence/composer-input.md`.
+- [x] N5 Right-hand control switches on content, **at the user's direction**: the microphone while the
+      field is empty, `arrow-up` — the desktop composer's own send glyph — once there is text.
+- [x] N6 The microphone dictates: record → `POST /api/audio/transcribe` → the transcript lands in the
+      draft, not sent. Chosen as the smallest *real* behaviour, because a mic button with nothing
+      behind it is a dead control, and this is the shape the requested layout already implies (record,
+      text appears, the arrow replaces the mic). A voice message and the desktop's full voice
+      conversation stay open as larger options.
+- [x] N7 De-risked statically before writing it: Capacitor 8.5's `WebViewDelegationHandler` already
+      answers `requestMediaCapturePermissionFor` with `.grant`, so the WebView-level gate that would
+      have silently refused `getUserMedia` is open. `NSMicrophoneUsageDescription` existed but its copy
+      described recording *video*; it now says what it is for.
+- [ ] N8 **The recording leg on a device — needs one tap from the user.** Unproven: `getUserMedia` and
+      `MediaRecorder` inside WKWebView on iPadOS. The recorder asks for `audio/mp4` before WebM
+      because iOS cannot produce WebM at all, and any failure lands on the status line with its reason,
+      so the tap is the test rather than a guess. Recorded in `evidence/composer-input.md`.
 
 ## Verification
 

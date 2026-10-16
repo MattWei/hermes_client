@@ -6,17 +6,22 @@ import { chatMessageText, type ChatMessage } from './lib/chat-messages'
 import type { MobileApprovalRequest } from './mobile-approval-client'
 import type { MobileToolActivity } from './mobile-tool-activity-client'
 
+/** Recording is a two-tap gesture, so the composer has to show which half of it it is in. */
+export type MobileVoiceState = 'idle' | 'recording' | 'transcribing'
+
 interface IpadComposerProps {
   draft: string
   onDraftChange: (value: string) => void
   onFilesChange: (files: File[]) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
+  onVoiceInput: () => void
   pendingFiles: File[]
   sessionId: string | null
+  voiceState: MobileVoiceState
 }
 
 /** Message composer, shared by the offline surface and the session detail view. */
-export function IpadComposer({ draft, onDraftChange, onFilesChange, onSubmit, pendingFiles, sessionId }: IpadComposerProps) {
+export function IpadComposer({ draft, onDraftChange, onFilesChange, onSubmit, onVoiceInput, pendingFiles, sessionId, voiceState }: IpadComposerProps) {
   const fieldRef = useRef<HTMLTextAreaElement>(null)
 
   /**
@@ -45,6 +50,8 @@ export function IpadComposer({ draft, onDraftChange, onFilesChange, onSubmit, pe
     event.currentTarget.form?.requestSubmit()
   }
 
+  const hasContent = draft.trim().length > 0 || pendingFiles.length > 0
+
   return (
     <form className="mt-auto shrink-0 pt-4" onSubmit={onSubmit}>
       {pendingFiles.length > 0 && <div aria-label="Pending attachments" className="mb-2 flex flex-wrap gap-2">
@@ -72,7 +79,23 @@ export function IpadComposer({ draft, onDraftChange, onFilesChange, onSubmit, pe
           rows={1}
           value={draft}
         />
-        <button aria-label="Send message" className="shrink-0 rounded-xl bg-[var(--ui-text-primary)] px-4 py-2 text-sm font-medium text-background disabled:opacity-40" disabled={!sessionId || (!draft.trim() && pendingFiles.length === 0)} type="submit">Send</button>
+        {hasContent ? <button
+          aria-label="Send message"
+          className="shrink-0 rounded-xl bg-[var(--ui-text-primary)] p-2.5 text-background disabled:opacity-40"
+          disabled={!sessionId}
+          type="submit"
+        >
+          <Codicon name="arrow-up" size="0.875rem" />
+        </button> : <button
+          aria-label={voiceState === 'recording' ? 'Stop recording' : 'Record a voice message'}
+          aria-pressed={voiceState === 'recording'}
+          className={`shrink-0 rounded-xl p-2.5 disabled:opacity-40 ${voiceState === 'recording' ? 'bg-red-500/15 text-red-500' : ''}`}
+          disabled={!sessionId || voiceState === 'transcribing'}
+          onClick={onVoiceInput}
+          type="button"
+        >
+          <Codicon name={voiceState === 'recording' ? 'record' : 'mic'} size="1rem" />
+        </button>}
       </div>
     </form>
   )
@@ -86,14 +109,16 @@ interface IpadSessionDetailProps {
   onFilesChange: (files: File[]) => void
   onRespondToApproval: (choice: 'deny' | 'once') => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
+  onVoiceInput: () => void
   pendingFiles: File[]
   sessionId: string | null
   toolActivities: MobileToolActivity[]
+  voiceState: MobileVoiceState
 }
 
 /** Mobile session detail view: one conversation, with a way back to the list. */
 export function IpadSessionDetail({
-  approval, draft, messages, onDraftChange, onFilesChange, onRespondToApproval, onSubmit, pendingFiles, sessionId, toolActivities
+  approval, draft, messages, onDraftChange, onFilesChange, onRespondToApproval, onSubmit, onVoiceInput, pendingFiles, sessionId, toolActivities, voiceState
 }: IpadSessionDetailProps) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -128,8 +153,10 @@ export function IpadSessionDetail({
         onDraftChange={onDraftChange}
         onFilesChange={onFilesChange}
         onSubmit={onSubmit}
+        onVoiceInput={onVoiceInput}
         pendingFiles={pendingFiles}
         sessionId={sessionId}
+        voiceState={voiceState}
       />
     </div>
   )
