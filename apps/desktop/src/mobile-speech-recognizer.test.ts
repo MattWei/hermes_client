@@ -8,6 +8,7 @@ function pluginWith(overrides: Partial<HermesSpeechPlugin> = {}): HermesSpeechPl
     requestPermission: vi.fn(async () => ({ microphone: true, speech: 'authorized' })),
     start: vi.fn(async () => undefined),
     stop: vi.fn(async () => ({ transcript: '你好' })),
+    addListener: vi.fn(async () => ({ remove: vi.fn(async () => undefined) })),
     ...overrides
   }
 }
@@ -55,5 +56,35 @@ describe('mobile speech recognizer', () => {
     const recognizer = createMobileSpeechRecognizer(pluginWith({ stop: vi.fn(async () => ({ transcript: '' })) }))
 
     await expect(recognizer.stop()).resolves.toBe('')
+  })
+
+  it('streams partials while listening, and detaches them on stop', async () => {
+    let emit: (data: { text: string }) => void = () => {}
+    const remove = vi.fn(async () => undefined)
+    const plugin = pluginWith({
+      addListener: vi.fn(async (_event: 'partial', handler: (data: { text: string }) => void) => {
+        emit = handler
+        return { remove }
+      })
+    })
+    const heard: string[] = []
+    const recognizer = createMobileSpeechRecognizer(plugin)
+
+    await recognizer.start('zh-CN', text => heard.push(text))
+    emit({ text: '你好' })
+    emit({ text: '你好，世界' })
+    expect(heard).toEqual(['你好', '你好，世界'])
+
+    // A listener that outlives its recording keeps writing into an editor the person has left.
+    await recognizer.stop()
+    expect(remove).toHaveBeenCalled()
+  })
+
+  it('does not subscribe at all when the caller wants no partials', async () => {
+    const plugin = pluginWith({ addListener: vi.fn(async () => ({ remove: vi.fn(async () => undefined) })) })
+
+    await createMobileSpeechRecognizer(plugin).start('zh-CN')
+
+    expect(plugin.addListener).not.toHaveBeenCalled()
   })
 })

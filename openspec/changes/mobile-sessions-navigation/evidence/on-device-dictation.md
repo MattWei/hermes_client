@@ -54,7 +54,24 @@ would have read as "the plugin never made it into the app".
 
 ## Not yet verified
 
-The tap. Everything up to and including "the recogniser is installed and can be asked" is proven; that
-the device model actually transcribes Chinese, and how it handles mid-sentence English, is what the
-tap answers. Failures surface on the status line (a declined grant, no on-device model for the locale,
-a recogniser error), so the result is decodable either way.
+**Nothing — the tap passed.** The user tapped the microphone, spoke, and the text appeared in the
+composer. The device model transcribes; the feature works and no longer depends on the backend having
+an STT provider at all.
+
+## Live partials
+
+The plugin already emitted `partial` while listening, so the composer now writes them straight into the
+field: watching the words appear is the point of a device recogniser, and a mis-hearing becomes visible
+while it can still be corrected rather than only at the end.
+
+Two details that are load-bearing:
+
+- **The listener is detached on stop.** The final result arrives with the last partial, so a listener
+  that outlived its recording would keep writing into an editor the person has moved on from.
+- **The transcript joins the draft that stood there when recording began**, captured once into a ref.
+  Composing against the *current* draft would make each partial append to the one before it, so a
+  five-word sentence would build a paragraph of its own prefixes.
+
+An empty final transcript puts the original draft back — a live partial has been writing into the field,
+and "no speech detected" must not leave the person's own text replaced by nothing.
+

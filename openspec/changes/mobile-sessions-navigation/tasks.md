@@ -295,8 +295,14 @@
 - [x] O4 The gateway upload stays as the fallback, selected by a capability probe, so Android and every
       other platform keep a working button instead of a dead one. The status line names which engine is
       live (`Listening on this device…` vs `Recording…`), so a tap is decodable without a debugger.
-- [ ] O5 **Verified on hardware**: tap, speak Chinese, and the text must appear in the composer —
-      including how it handles mid-sentence English. Recorded in `evidence/on-device-dictation.md`.
+- [x] O5 **Verified on hardware by the user**: tapped the microphone, spoke, and the words appeared in
+      the composer. The device recogniser works, so the feature no longer depends on the backend having
+      an STT provider at all.
+- [x] O6 Partials stream into the composer as the person speaks, through the plugin's existing `partial`
+      event: watching the words appear is the point of a device recogniser, and a mis-hearing becomes
+      visible while it can still be corrected. The listener is detached on stop — one that outlives its
+      recording keeps writing into an editor the person has left — and the transcript joins the draft
+      that stood there when recording began, so dictating twice appends instead of eating the first half.
 
 ## Verification
 

@@ -30,6 +30,16 @@ import { IpadShell, sessionLabel } from './ipad-shell'
  */
 const DICTATION_LOCALE = 'zh-CN'
 
+/**
+ * The transcript joins whatever was already written, so dictating a second sentence appends instead of
+ * eating the first one. Used for the live partials too, which is why it takes the base as an argument
+ * rather than reading the current draft.
+ */
+function composeDraft(base: string, transcript: string): string {
+  const trimmed = base.trim()
+  return trimmed ? `${trimmed} ${transcript}` : transcript
+}
+
 interface IpadHomeProps {
   connectGateway?: (config: MobileGatewaySocketConfig) => Promise<MobileGatewayRequest & MobilePromptGateway & { close(): void }>
   createRestClient?: (config: MobileGatewayRestConfig) => MobileGatewayRestClient
@@ -67,6 +77,9 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
   const voiceRecorderRef = useRef<MobileVoiceRecorder | null>(null)
   /** Which engine the running recording belongs to, so `stop` knows how to finish it. */
   const voiceEngineRef = useRef<'device' | 'gateway' | null>(null)
+  /** The draft as it stood when recording started, so a live partial replaces its own text and not the person's. */
+  const voiceBaseRef = useRef('')
+  const speechRecognizer = useRef(createMobileSpeechRecognizer())
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [approval, setApproval] = useState<MobileApprovalRequest | null>(null)
   const [toolActivities, setToolActivities] = useState<MobileToolActivity[]>([])
@@ -662,13 +675,16 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
       return
     }
 
-    const speech = createMobileSpeechRecognizer()
+    const speech = speechRecognizer.current
 
     if (voiceState !== 'recording') {
       try {
+        voiceBaseRef.current = draft
         const support = await speech.support(DICTATION_LOCALE)
         if (support?.supported && support.onDevice) {
-          await speech.start(DICTATION_LOCALE)
+          // Partials go straight into the composer: watching the words appear is the point of a device
+          // recogniser, and a mis-hearing becomes visible while it can still be corrected.
+          await speech.start(DICTATION_LOCALE, text => setDraft(composeDraft(voiceBaseRef.current, text)))
           voiceEngineRef.current = 'device'
           setVoiceState('recording')
           setConnectionMessage('Listening on this device… tap the button again to stop.')
@@ -698,11 +714,15 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
         : await transcribeThroughGateway(rest)
       setVoiceState('idle')
       if (!transcript) {
-        // Silence is a normal outcome, not a failure — say so rather than leaving a blank answer.
+        // Silence is a normal outcome, not a failure. A live partial has been writing into the field
+        // though, so put back what stood there before the recording started.
+        if (engine === 'device') {
+          setDraft(voiceBaseRef.current)
+        }
         setConnectionMessage('No speech detected.')
         return
       }
-      setDraft(current => (current.trim() ? `${current.trim()} ${transcript}` : transcript))
+      setDraft(composeDraft(voiceBaseRef.current, transcript))
     } catch (error) {
       setVoiceState('idle')
       setConnectionMessage(error instanceof Error ? error.message : 'Unable to transcribe the recording')
