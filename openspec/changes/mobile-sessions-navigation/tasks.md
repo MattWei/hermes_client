@@ -281,6 +281,23 @@
       undecodable container — and the route answers `{"detail": "<why>"}`, whose text *is* the
       diagnosis. Now surfaced, with the status as the fallback when the body is not JSON.
 
+## Phase O — on-device dictation (spike)
+
+- [x] O1 Prefer the device's own recogniser over a gateway upload. The gateway transcribes only through
+      a configured STT provider, and the backend host has none, so the microphone button had nothing to
+      reach. The iPad carries a Mandarin model, runs it for free and sends the audio nowhere.
+- [x] O2 New native plugin `ios/App/App/SpeechPlugin.swift` (`SFSpeechRecognizer`, on-device):
+      `available` / `requestPermission` / `start` / `stop`, registered app-side from
+      `MainViewController` exactly as `SecureStorePlugin` is. Requires **four** `project.pbxproj`
+      entries — a Swift file on disk but absent from the target compiles to nothing and reports nothing.
+- [x] O3 `Info.plist` gains `NSSpeechRecognitionUsageDescription`; without it the first call terminates
+      the app rather than prompting.
+- [x] O4 The gateway upload stays as the fallback, selected by a capability probe, so Android and every
+      other platform keep a working button instead of a dead one. The status line names which engine is
+      live (`Listening on this device…` vs `Recording…`), so a tap is decodable without a debugger.
+- [ ] O5 **Verified on hardware**: tap, speak Chinese, and the text must appear in the composer —
+      including how it handles mid-sentence English. Recorded in `evidence/on-device-dictation.md`.
+
 ## Verification
 
 - [x] List → session round-trip on the iPad simulator (back transition still unit-test only).

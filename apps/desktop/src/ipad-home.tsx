@@ -15,6 +15,7 @@ import { createMobileSessionClient, loadMobileSessionHistory, MobileSessionAuthE
 import { createMobileProfileClient, type MobileProfileSummary } from './mobile-profile-client'
 import { forgetLastSession, readLastSession, rememberLastSession } from './mobile-last-session'
 import { mergePinsFromRows, readCachedPins, writeCachedPins } from './mobile-session-pins'
+import { createMobileSpeechRecognizer } from './mobile-speech-recognizer'
 import { createMobileToolActivityClient, type MobileToolActivity } from './mobile-tool-activity-client'
 import { createMobileVoiceRecorder, readableMicrophoneError, type MobileVoiceRecorder } from './mobile-voice-recorder'
 import type { MobileGatewaySocketConfig } from './mobile-gateway-transport'
@@ -22,6 +23,12 @@ import { parseMobileConnection, type MobileConnectionMode } from './mobile-conne
 import { Codicon } from './components/ui/codicon'
 import { IpadSessionDetail, type MobileVoiceState } from './ipad-session-detail'
 import { IpadShell, sessionLabel } from './ipad-shell'
+
+/**
+ * The language the microphone listens for. A device recogniser has to pick a model up front, so unlike
+ * a cloud provider it cannot usefully auto-detect; this stays a constant until there is a setting.
+ */
+const DICTATION_LOCALE = 'zh-CN'
 
 interface IpadHomeProps {
   connectGateway?: (config: MobileGatewaySocketConfig) => Promise<MobileGatewayRequest & MobilePromptGateway & { close(): void }>
@@ -58,6 +65,8 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
   const [draft, setDraft] = useState('')
   const [voiceState, setVoiceState] = useState<MobileVoiceState>('idle')
   const voiceRecorderRef = useRef<MobileVoiceRecorder | null>(null)
+  /** Which engine the running recording belongs to, so `stop` knows how to finish it. */
+  const voiceEngineRef = useRef<'device' | 'gateway' | null>(null)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [approval, setApproval] = useState<MobileApprovalRequest | null>(null)
   const [toolActivities, setToolActivities] = useState<MobileToolActivity[]>([])
@@ -640,42 +649,56 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
    * Two taps, not press-and-hold: a hold gesture fights the scroll on a touch surface and gives no
    * way to see that it is live, while tapping again is unambiguous and the icon shows the state.
    *
-   * The transcript lands in the draft rather than going straight out, so what was heard can be
-   * corrected before it reaches the model.
+   * **The device transcribes when it can.** An iPad carries its own Mandarin model, so the audio never
+   * leaves it and the gateway needs no STT provider — a host without one refuses the upload outright,
+   * which is what this button was doing. The gateway upload stays as the fallback for platforms with
+   * no native recogniser.
+   *
+   * Either way the transcript lands in the draft rather than going straight out, so what was heard
+   * can be corrected before it reaches the model.
    */
   async function toggleVoiceInput() {
     if (!rest) {
       return
     }
 
+    const speech = createMobileSpeechRecognizer()
+
     if (voiceState !== 'recording') {
       try {
+        const support = await speech.support(DICTATION_LOCALE)
+        if (support?.supported && support.onDevice) {
+          await speech.start(DICTATION_LOCALE)
+          voiceEngineRef.current = 'device'
+          setVoiceState('recording')
+          setConnectionMessage('Listening on this device… tap the button again to stop.')
+          return
+        }
         const recorder = createMobileVoiceRecorder()
         await recorder.start()
         voiceRecorderRef.current = recorder
+        voiceEngineRef.current = 'gateway'
         setVoiceState('recording')
         setConnectionMessage('Recording… tap the button again to stop.')
       } catch (error) {
         voiceRecorderRef.current = null
+        voiceEngineRef.current = null
         setVoiceState('idle')
         setConnectionMessage(readableMicrophoneError(error).message)
       }
       return
     }
 
-    const recorder = voiceRecorderRef.current
-    voiceRecorderRef.current = null
+    const engine = voiceEngineRef.current
+    voiceEngineRef.current = null
     setVoiceState('transcribing')
     try {
-      const recording = await recorder?.stop() ?? null
-      if (!recording) {
-        setVoiceState('idle')
-        return
-      }
-      const transcript = await createMobileDictationClient(rest).transcribe(recording, activeProfile || undefined)
+      const transcript = engine === 'device'
+        ? await speech.stop()
+        : await transcribeThroughGateway(rest)
       setVoiceState('idle')
       if (!transcript) {
-        // Silence is a normal outcome here, not a failure — say so rather than leaving a blank answer.
+        // Silence is a normal outcome, not a failure — say so rather than leaving a blank answer.
         setConnectionMessage('No speech detected.')
         return
       }
@@ -684,6 +707,17 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
       setVoiceState('idle')
       setConnectionMessage(error instanceof Error ? error.message : 'Unable to transcribe the recording')
     }
+  }
+
+  /** The upload path: record in the WebView, transcribe on the gateway. */
+  async function transcribeThroughGateway(restClient: MobileGatewayRestClient): Promise<string> {
+    const recorder = voiceRecorderRef.current
+    voiceRecorderRef.current = null
+    const recording = await recorder?.stop() ?? null
+    if (!recording) {
+      return ''
+    }
+    return createMobileDictationClient(restClient).transcribe(recording, activeProfile || undefined)
   }
 
   // Title of the session shown in the inset; null while no session is open. The sidebar's chain, so
