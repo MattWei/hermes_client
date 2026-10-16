@@ -264,12 +264,18 @@
 - [x] N10 The pill gains a hairline border (`--ui-stroke-tertiary`) and the `+` control loses its own —
       offered when the white fill turned out to be too quiet to read as a surface, and confirmed by the
       user. The pill is the box; a bordered icon inside a bordered box read as two boxes.
-- [ ] N11 **The gateway refuses the upload: `POST /api/audio/transcribe` answers 400.** A configuration
-      or format answer, not a client-capability one. `audio/mp4` maps to `.mp4` in the route's own
-      extension table, so the container name is not the fault by itself; the remaining candidates are a
-      profile with no STT provider configured, a provider refusing the upload, and a host that cannot
-      preprocess the container. **Blocked on the route's own message** — N12 surfaces it, and the next
-      tap names the cause.
+- [ ] N11 **The gateway cannot transcribe at all — the host has no usable STT provider.** The route's own
+      message, surfaced by N12, reads: *stt is configured to use nous (set via hermes tools), but the
+      nous tool gateway is not available*. Inspected on the backend host (`api.wei-agent.com` =
+      `8.218.14.48`, reachable over ssh):
+      - `~/.hermes/config.yaml` says `stt.provider: openai`, but `hermes-gateway.service` **started
+        Oct 11 23:20** while that file was **edited Oct 13 22:51** — so the process still serves the
+        older value (`nous`). Nothing hot-reloads it, which is why the edit appeared to do nothing.
+      - A restart alone would not fix it: **no STT credential of any kind is present** (OpenAI,
+        ElevenLabs, Mistral, Deepgram, Groq, Nous — none in `.env`, none in the process environment),
+        and `faster_whisper` is not installed in the gateway venv, so `provider: local` is out too.
+      Every option therefore needs something added to the backend first, and that is the user's call:
+      the client half of this path is done and proven.
 - [x] N12 **The client was throwing the diagnosis away.** It reported `Transcription failed (HTTP 400)`,
       which cannot distinguish an empty recording from a gateway with no STT provider from an
       undecodable container — and the route answers `{"detail": "<why>"}`, whose text *is* the
