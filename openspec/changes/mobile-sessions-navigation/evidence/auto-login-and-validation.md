@@ -133,3 +133,15 @@ this codebase logs nothing from these modules, so silence is consistent too.
 A test pins the decision from the other side: a store that throws leaves the connection surface
 intact and carries no error text. The rejection itself is guarded by the error count being zero —
 there is no assertion that can see an unhandled rejection directly.
+
+**Project-wide, uncontended:** `npm run test:ui -- --run` → `633 passed (633)` files,
+`6251 passed (6251)` tests, exit 0, and no `Errors` footer anywhere in the log. The command's exit
+code means something again.
+
+**A wrong conclusion worth recording.** The first full-project run reported 5 failures in 2 files
+(`app/messaging/index.test.tsx`, `lib/markdown-blocks.test.ts`) and they were written off as
+"pre-existing, unrelated" on the strength of a scope check — the failing tests import nothing from
+the modules touched here. That was wrong. The run had two other vitest instances beside it, and both
+files pass alone (`2 passed | 14 passed`). They were false failures caused by CPU contention, most
+likely by this session's own concurrent runs. **A file's name is not evidence about why it failed**;
+re-run it in isolation before attributing a failure to anything, including "pre-existing".
