@@ -922,6 +922,62 @@ describe('IpadHome', () => {
     expect(screen.getByRole('textbox', { name: 'Backend address' })).toBeTruthy()
   })
 
+  /** Connect over LAN and open a brand-new session, which is where a composer becomes usable. */
+  async function openNewSessionForComposer(request: (method: string, params?: Record<string, unknown>) => Promise<unknown>) {
+    const get = vi.fn(async (path: string) => {
+      if (path === '/api/profiles') {
+        return new Response(JSON.stringify({ profiles: [] }))
+      }
+      return new Response(JSON.stringify({ sessions: [] }))
+    })
+
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request }))} createRestClient={vi.fn(() => ({ get, patch: vi.fn(), post: vi.fn(), remove: vi.fn() }))} />)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'http://10.10.10.10:9119' } })
+    fireEvent.change(screen.getByLabelText('LAN session token'), { target: { value: 'lan-token' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I understand this LAN connection uses unencrypted HTTP and WS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Connect LAN gateway' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Start new session' })).toBeTruthy())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start new session' }))
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message composer' })).toBeTruthy())
+  }
+
+  it('sends on Enter, and leaves Shift+Enter and an IME composition alone', async () => {
+    const request = vi.fn(async (method: string) => method === 'session.create'
+      ? { session_id: 'runtime-5', stored_session_id: 'stored-5' }
+      : { status: 'accepted' })
+    await openNewSessionForComposer(request)
+
+    const composer = screen.getByRole('textbox', { name: 'Message composer' })
+    fireEvent.change(composer, { target: { value: 'hello' } })
+
+    // Shift+Enter is the newline, and an IME uses Enter to commit a candidate — neither may send.
+    fireEvent.keyDown(composer, { key: 'Enter', shiftKey: true })
+    fireEvent.keyDown(composer, { key: 'Enter', isComposing: true })
+    expect(request).not.toHaveBeenCalledWith('prompt.submit', expect.anything())
+
+    fireEvent.keyDown(composer, { key: 'Enter' })
+    await waitFor(() => expect(request).toHaveBeenCalledWith('prompt.submit', { session_id: 'runtime-5', text: 'hello' }))
+  })
+
+  it('starts the composer one row tall, with the attach control still named', async () => {
+    const request = vi.fn(async (method: string) => method === 'session.create'
+      ? { session_id: 'runtime-6', stored_session_id: 'stored-6' }
+      : { status: 'accepted' })
+    await openNewSessionForComposer(request)
+
+    // One row, growing with the text — the height itself is set from scrollHeight, which jsdom
+    // reports as 0, so the device is where the growth is verified.
+    const composer = screen.getByRole('textbox', { name: 'Message composer' })
+    expect(composer.getAttribute('rows')).toBe('1')
+    // The label became a `+` icon; the control must not become nameless with it.
+    expect(screen.getByLabelText('Attach file')).toBeTruthy()
+  })
+
   it('adopts the gateway default profile and loads that store on connect', async () => {
     const requested: string[] = []
     const get = vi.fn(async (path: string) => {

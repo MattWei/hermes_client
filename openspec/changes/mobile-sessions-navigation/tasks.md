@@ -228,6 +228,26 @@
       auto-login, and the connection form is already the fallback. Recorded in
       `evidence/auto-login-and-validation.md` §4.
 
+## Phase N — the composer input (follow-up)
+
+- [x] N1 Drop the rule between the transcript and the input: `border-t` off the composer form. The
+      spacing stays; the divider does not.
+- [x] N2 The field starts one row tall and grows with its text — `rows={1}`, height re-measured from
+      `scrollHeight` on each change (reset to `auto` first, or the box can only ever grow), capped so
+      a long draft scrolls. The height is device-verified only: jsdom reports `scrollHeight` as 0.
+- [x] N3 Enter sends; Shift+Enter and an in-flight IME composition keep the newline. The IME guard is
+      not academic on a Chinese keyboard — Enter commits a candidate, so a bare key check fires
+      half-typed text at the model.
+- [x] N4 The attach control is a `+` icon instead of the word `Attach`, still the same `<label>` bound
+      to the same file input and still named `Attach file` for assistive use.
+- [ ] N5 **A microphone button on the right — blocked on a decision the user has not given yet.**
+      Desktop's mic belongs to its voice-conversation cluster (`composer/controls.tsx`), not to the
+      composer row; the gateway does offer `POST /api/audio/transcribe` and `GET /api/audio/voice-config`,
+      so a record → text path is reachable. Not implemented blind because two things are unproven —
+      `getUserMedia`/`MediaRecorder` inside WKWebView, and the app-level microphone grant — and because
+      whether the mic replaces Send, sits beside it, or Send is dropped now that Enter sends is the
+      user's call. Options and the bundle-verification greps: `evidence/composer-input.md`.
+
 ## Verification
 
 - [x] List → session round-trip on the iPad simulator (back transition still unit-test only).

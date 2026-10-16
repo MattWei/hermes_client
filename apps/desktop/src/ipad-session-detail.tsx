@@ -1,6 +1,7 @@
-import type { FormEvent } from 'react'
+import { useEffect, useRef, type FormEvent, type KeyboardEvent } from 'react'
 
 import { MarkdownTextContent } from './components/assistant-ui/markdown-text'
+import { Codicon } from './components/ui/codicon'
 import { chatMessageText, type ChatMessage } from './lib/chat-messages'
 import type { MobileApprovalRequest } from './mobile-approval-client'
 import type { MobileToolActivity } from './mobile-tool-activity-client'
@@ -16,8 +17,36 @@ interface IpadComposerProps {
 
 /** Message composer, shared by the offline surface and the session detail view. */
 export function IpadComposer({ draft, onDraftChange, onFilesChange, onSubmit, pendingFiles, sessionId }: IpadComposerProps) {
+  const fieldRef = useRef<HTMLTextAreaElement>(null)
+
+  /**
+   * One row tall until the text needs more. Reset to `auto` first — measuring against the height the
+   * previous keystroke set can only ever grow the box, never shrink it back.
+   */
+  useEffect(() => {
+    const field = fieldRef.current
+    if (!field) {
+      return
+    }
+    field.style.height = 'auto'
+    field.style.height = `${field.scrollHeight}px`
+  }, [draft])
+
+  /**
+   * Enter sends; Shift+Enter breaks the line. The composition check matters more than it looks on a
+   * Latin keyboard: an IME uses Enter to commit a candidate, and sending on that Enter would fire
+   * half-typed text at the model.
+   */
+  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) {
+      return
+    }
+    event.preventDefault()
+    event.currentTarget.form?.requestSubmit()
+  }
+
   return (
-    <form className="mt-auto shrink-0 border-t border-(--ui-stroke-tertiary) pt-4" onSubmit={onSubmit}>
+    <form className="mt-auto shrink-0 pt-4" onSubmit={onSubmit}>
       {pendingFiles.length > 0 && <div aria-label="Pending attachments" className="mb-2 flex flex-wrap gap-2">
         {pendingFiles.map((file, index) => <button className="rounded-lg border border-(--ui-stroke-tertiary) px-2 py-1 text-sm" key={`${file.name}-${index}`} onClick={() => onFilesChange(pendingFiles.filter((_, itemIndex) => itemIndex !== index))} type="button">Remove {file.name}</button>)}
       </div>}
@@ -26,19 +55,21 @@ export function IpadComposer({ draft, onDraftChange, onFilesChange, onSubmit, pe
       <div className="flex items-end gap-3 rounded-2xl bg-[var(--ui-bg-quaternary)] p-3">
         <label
           aria-disabled={!sessionId}
-          className={`shrink-0 cursor-pointer rounded-xl border border-(--ui-stroke-tertiary) px-3 py-2 text-sm ${sessionId ? '' : 'pointer-events-none opacity-40'}`}
+          className={`shrink-0 cursor-pointer rounded-xl border border-(--ui-stroke-tertiary) p-2 ${sessionId ? '' : 'pointer-events-none opacity-40'}`}
           htmlFor="ipad-attachment"
         >
-          Attach
+          <Codicon name="add" size="1rem" />
         </label>
         <textarea
           aria-label="Message composer"
-          className="min-h-14 flex-1 resize-none bg-transparent px-1 py-2 text-base outline-none placeholder:text-[color:var(--ui-text-tertiary)]"
+          className="max-h-40 flex-1 resize-none overflow-y-auto bg-transparent px-1 py-2 text-base outline-none placeholder:text-[color:var(--ui-text-tertiary)]"
           disabled={!sessionId}
           id="ipad-message"
           onChange={event => onDraftChange(event.target.value)}
+          onKeyDown={handleKeyDown}
           placeholder={sessionId ? 'Message Hermes' : 'Create a session to start a conversation'}
-          rows={2}
+          ref={fieldRef}
+          rows={1}
           value={draft}
         />
         <button aria-label="Send message" className="shrink-0 rounded-xl bg-[var(--ui-text-primary)] px-4 py-2 text-sm font-medium text-background disabled:opacity-40" disabled={!sessionId || (!draft.trim() && pendingFiles.length === 0)} type="submit">Send</button>
