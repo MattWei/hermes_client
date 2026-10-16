@@ -53,7 +53,7 @@ export function IpadComposer({ draft, onDraftChange, onFilesChange, onSubmit, on
   const hasContent = draft.trim().length > 0 || pendingFiles.length > 0
 
   return (
-    <form className="mt-auto shrink-0 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]" onSubmit={onSubmit}>
+    <form className="mt-auto shrink-0 pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))]" onSubmit={onSubmit}>
       {pendingFiles.length > 0 && <div aria-label="Pending attachments" className="mb-2 flex flex-wrap gap-2">
         {pendingFiles.map((file, index) => <button className="rounded-lg border border-(--ui-stroke-tertiary) px-2 py-1 text-sm" key={`${file.name}-${index}`} onClick={() => onFilesChange(pendingFiles.filter((_, itemIndex) => itemIndex !== index))} type="button">Remove {file.name}</button>)}
       </div>}
