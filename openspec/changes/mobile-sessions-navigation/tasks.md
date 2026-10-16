@@ -251,16 +251,29 @@
       answers `requestMediaCapturePermissionFor` with `.grant`, so the WebView-level gate that would
       have silently refused `getUserMedia` is open. `NSMicrophoneUsageDescription` existed but its copy
       described recording *video*; it now says what it is for.
-- [ ] N8 **The recording leg on a device — needs one tap from the user.** Unproven: `getUserMedia` and
-      `MediaRecorder` inside WKWebView on iPadOS. The recorder asks for `audio/mp4` before WebM
-      because iOS cannot produce WebM at all, and any failure lands on the status line with its reason,
-      so the tap is the test rather than a guess. Recorded in `evidence/composer-input.md`.
+- [x] N8 **The recording leg works inside WKWebView.** The user's tap produced a real upload, which
+      settles the genuinely uncertain part: `getUserMedia` + `MediaRecorder` run in the iPad WebView,
+      and Capacitor's blanket `.grant` is what lets them. Failures still land on the status line, so
+      the same tap doubles as the diagnosis.
 - [x] N9 Height, clearance and surface, from the user's read of it **on the device**: the pill's padding
       comes down (container `px-2.5 py-1`, textarea `py-1.5`, both round buttons `p-2`) taking the row
       from ≈64px to ≈44px, the form gains `pb-[max(1.5rem,env(safe-area-inset-bottom))]` so the pill no
       longer sits against the viewport edge, and the fill moves from the translucent
       `--ui-bg-quaternary` to `bg-background`. `--ui-bg-input: #fcfcfc` exists but is unused and a fixed
       light value — a white block in a dark theme — so it was not the right token for "white".
+- [x] N10 The pill gains a hairline border (`--ui-stroke-tertiary`) and the `+` control loses its own —
+      offered when the white fill turned out to be too quiet to read as a surface, and confirmed by the
+      user. The pill is the box; a bordered icon inside a bordered box read as two boxes.
+- [ ] N11 **The gateway refuses the upload: `POST /api/audio/transcribe` answers 400.** A configuration
+      or format answer, not a client-capability one. `audio/mp4` maps to `.mp4` in the route's own
+      extension table, so the container name is not the fault by itself; the remaining candidates are a
+      profile with no STT provider configured, a provider refusing the upload, and a host that cannot
+      preprocess the container. **Blocked on the route's own message** — N12 surfaces it, and the next
+      tap names the cause.
+- [x] N12 **The client was throwing the diagnosis away.** It reported `Transcription failed (HTTP 400)`,
+      which cannot distinguish an empty recording from a gateway with no STT provider from an
+      undecodable container — and the route answers `{"detail": "<why>"}`, whose text *is* the
+      diagnosis. Now surfaced, with the status as the fallback when the body is not JSON.
 
 ## Verification
 

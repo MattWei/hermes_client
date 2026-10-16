@@ -41,7 +41,19 @@ describe('mobile dictation client', () => {
     await expect(clientWith(post).transcribe(recording)).resolves.toBe('')
   })
 
-  it('raises on a refused upload instead of reporting an empty transcript', async () => {
+  it('reports the gateway\'s own reason, not just the status code', async () => {
+    // The route puts an empty recording, an undecodable container and a provider refusal behind the
+    // same 400 — the detail is what makes the message worth showing.
+    const post = vi.fn(async (_path: string, _body?: unknown) => new Response(
+      JSON.stringify({ detail: 'No STT provider is configured for this profile.' }),
+      { headers: { 'Content-Type': 'application/json' }, status: 400 }
+    ))
+
+    await expect(clientWith(post).transcribe(recording))
+      .rejects.toThrow('Transcription failed: No STT provider is configured for this profile.')
+  })
+
+  it('falls back to the status when the failure carries no JSON detail', async () => {
     const post = vi.fn(async (_path: string, _body?: unknown) => new Response('nope', { status: 413 }))
 
     await expect(clientWith(post).transcribe(recording)).rejects.toThrow('Transcription failed (HTTP 413)')

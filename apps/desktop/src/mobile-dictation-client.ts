@@ -22,6 +22,27 @@ function readAsDataUrl(blob: Blob): Promise<string> {
   })
 }
 
+/**
+ * The route answers a failure with `{"detail": "<why>"}`, and the why is the entire value of the
+ * message: "HTTP 400" cannot tell an empty recording from a gateway with no STT provider configured,
+ * a container it cannot decode, or a provider refusing the upload.
+ *
+ * Deliberately unlike the sign-in path, which must never echo the server: there the body risks being
+ * a credential oracle, while here it describes the user's own audio and their own configuration.
+ */
+async function describeFailure(response: Response): Promise<string> {
+  let detail = ''
+  try {
+    const body = await response.json() as { detail?: unknown }
+    if (typeof body.detail === 'string') {
+      detail = body.detail.trim()
+    }
+  } catch {
+    // Not JSON — a proxy error page or an empty body. The status is all there is to report.
+  }
+  return detail ? `Transcription failed: ${detail}` : `Transcription failed (HTTP ${response.status})`
+}
+
 export function createMobileDictationClient(rest: MobileDictationRest) {
   return {
     /**
@@ -40,7 +61,7 @@ export function createMobileDictationClient(rest: MobileDictationRest) {
         mime_type: recording.mimeType
       })
       if (!response.ok) {
-        throw new Error(`Transcription failed (HTTP ${response.status})`)
+        throw new Error(await describeFailure(response))
       }
       const body = await response.json() as { transcript?: unknown }
       return typeof body.transcript === 'string' ? body.transcript : ''

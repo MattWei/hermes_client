@@ -59,10 +59,10 @@ export function IpadComposer({ draft, onDraftChange, onFilesChange, onSubmit, on
       </div>}
       <input aria-label="Attach file" className="sr-only" disabled={!sessionId} id="ipad-attachment" multiple onChange={event => onFilesChange([...pendingFiles, ...Array.from(event.target.files ?? [])])} type="file" />
       <label className="sr-only" htmlFor="ipad-message">Message composer</label>
-      <div className="flex items-end gap-2 rounded-2xl bg-background px-2.5 py-1">
+      <div className="flex items-end gap-2 rounded-2xl border border-(--ui-stroke-tertiary) bg-background px-2.5 py-1">
         <label
           aria-disabled={!sessionId}
-          className={`shrink-0 cursor-pointer rounded-xl border border-(--ui-stroke-tertiary) p-2 ${sessionId ? '' : 'pointer-events-none opacity-40'}`}
+          className={`shrink-0 cursor-pointer rounded-xl p-2 ${sessionId ? '' : 'pointer-events-none opacity-40'}`}
           htmlFor="ipad-attachment"
         >
           <Codicon name="add" size="1rem" />
