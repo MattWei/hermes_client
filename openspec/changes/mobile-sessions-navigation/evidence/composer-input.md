@@ -82,3 +82,28 @@ produces text proves the path; a tap that produces a sentence proves where it st
 Vitest runs it too, incidentally: jsdom has no `MediaRecorder`, so the suite exercises exactly the
 "cannot record" branch and asserts the message appears.
 
+## Height, clearance and surface
+
+Asked for after seeing it on the device: too tall, too close to the bottom, and white.
+
+| | Before | After |
+| --- | --- | --- |
+| Fill | `--ui-bg-quaternary` — a translucent tint | `bg-background` — the theme's opaque window surface |
+| Padding | container `p-3`, textarea `py-2`, round buttons `p-2.5` | container `px-2.5 py-1`, textarea `py-1.5`, buttons `p-2` |
+| Row height | ≈64px | ≈44px |
+| Below the pill | 12px — the container's own padding | container `py-1` plus `pb-[max(1.5rem,env(safe-area-inset-bottom))]` on the form |
+
+**Why not `--ui-bg-input`.** The theme defines it (`#fcfcfc`) and *nothing uses it*. It is a fixed
+light value with no dark-theme override, so an input that adopted it would become a white block the
+moment the app switched to a dark theme — the opposite of what "white background" should mean in the
+other theme. `bg-background` resolves through `--ui-bg-chrome` and follows the theme.
+
+The safe-area form of the bottom padding is the project's own documented pattern (the same
+`max(1.5rem, env(…))` shape the offline surface uses at the top), so the clearance is a floor of 24px
+and grows on hardware that reports an inset.
+
+**Consequence worth naming:** the page behind the composer is `--ui-bg-primary`, a translucent tint
+over that same chrome surface, so an opaque white pill against a near-white page is subtle by
+construction. If the box should read as a distinct surface it needs a hairline border — not asked for,
+so not added.
+

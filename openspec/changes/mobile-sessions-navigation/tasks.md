@@ -255,6 +255,12 @@
       `MediaRecorder` inside WKWebView on iPadOS. The recorder asks for `audio/mp4` before WebM
       because iOS cannot produce WebM at all, and any failure lands on the status line with its reason,
       so the tap is the test rather than a guess. Recorded in `evidence/composer-input.md`.
+- [x] N9 Height, clearance and surface, from the user's read of it **on the device**: the pill's padding
+      comes down (container `px-2.5 py-1`, textarea `py-1.5`, both round buttons `p-2`) taking the row
+      from ≈64px to ≈44px, the form gains `pb-[max(1.5rem,env(safe-area-inset-bottom))]` so the pill no
+      longer sits against the viewport edge, and the fill moves from the translucent
+      `--ui-bg-quaternary` to `bg-background`. `--ui-bg-input: #fcfcfc` exists but is unused and a fixed
+      light value — a white block in a dark theme — so it was not the right token for "white".
 
 ## Verification
 

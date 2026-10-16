@@ -53,13 +53,13 @@ export function IpadComposer({ draft, onDraftChange, onFilesChange, onSubmit, on
   const hasContent = draft.trim().length > 0 || pendingFiles.length > 0
 
   return (
-    <form className="mt-auto shrink-0 pt-4" onSubmit={onSubmit}>
+    <form className="mt-auto shrink-0 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]" onSubmit={onSubmit}>
       {pendingFiles.length > 0 && <div aria-label="Pending attachments" className="mb-2 flex flex-wrap gap-2">
         {pendingFiles.map((file, index) => <button className="rounded-lg border border-(--ui-stroke-tertiary) px-2 py-1 text-sm" key={`${file.name}-${index}`} onClick={() => onFilesChange(pendingFiles.filter((_, itemIndex) => itemIndex !== index))} type="button">Remove {file.name}</button>)}
       </div>}
       <input aria-label="Attach file" className="sr-only" disabled={!sessionId} id="ipad-attachment" multiple onChange={event => onFilesChange([...pendingFiles, ...Array.from(event.target.files ?? [])])} type="file" />
       <label className="sr-only" htmlFor="ipad-message">Message composer</label>
-      <div className="flex items-end gap-3 rounded-2xl bg-[var(--ui-bg-quaternary)] p-3">
+      <div className="flex items-end gap-2 rounded-2xl bg-background px-2.5 py-1">
         <label
           aria-disabled={!sessionId}
           className={`shrink-0 cursor-pointer rounded-xl border border-(--ui-stroke-tertiary) p-2 ${sessionId ? '' : 'pointer-events-none opacity-40'}`}
@@ -69,7 +69,7 @@ export function IpadComposer({ draft, onDraftChange, onFilesChange, onSubmit, on
         </label>
         <textarea
           aria-label="Message composer"
-          className="max-h-40 flex-1 resize-none overflow-y-auto bg-transparent px-1 py-2 text-base outline-none placeholder:text-[color:var(--ui-text-tertiary)]"
+          className="max-h-40 flex-1 resize-none overflow-y-auto bg-transparent px-1 py-1.5 text-base outline-none placeholder:text-[color:var(--ui-text-tertiary)]"
           disabled={!sessionId}
           id="ipad-message"
           onChange={event => onDraftChange(event.target.value)}
@@ -81,7 +81,7 @@ export function IpadComposer({ draft, onDraftChange, onFilesChange, onSubmit, on
         />
         {hasContent ? <button
           aria-label="Send message"
-          className="shrink-0 rounded-xl bg-[var(--ui-text-primary)] p-2.5 text-background disabled:opacity-40"
+          className="shrink-0 rounded-xl bg-[var(--ui-text-primary)] p-2 text-background disabled:opacity-40"
           disabled={!sessionId}
           type="submit"
         >
@@ -89,7 +89,7 @@ export function IpadComposer({ draft, onDraftChange, onFilesChange, onSubmit, on
         </button> : <button
           aria-label={voiceState === 'recording' ? 'Stop recording' : 'Record a voice message'}
           aria-pressed={voiceState === 'recording'}
-          className={`shrink-0 rounded-xl p-2.5 disabled:opacity-40 ${voiceState === 'recording' ? 'bg-red-500/15 text-red-500' : ''}`}
+          className={`shrink-0 rounded-xl p-2 disabled:opacity-40 ${voiceState === 'recording' ? 'bg-red-500/15 text-red-500' : ''}`}
           disabled={!sessionId || voiceState === 'transcribing'}
           onClick={onVoiceInput}
           type="button"
