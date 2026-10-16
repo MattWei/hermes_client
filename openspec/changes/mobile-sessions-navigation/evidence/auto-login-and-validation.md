@@ -1,7 +1,7 @@
 # Auto-login, honest validation, and the disconnected-surface cleanup
 
-Three pieces of work that all sit on the connection surface: a credential that persists, a
-validation that actually validates, and a page that stops saying things that are not true.
+Pieces of work that all sit on the connection surface: a credential that persists, a validation that
+actually validates, and a page that stops saying things that are not true.
 
 ## 1. Auto-login
 
@@ -104,3 +104,32 @@ each cost a debugging cycle:
   after a disconnect, so re-authentication is possible but its trigger is unproven.
 - The offline page's visual result (centring, icon placement, button parity) was not verified by
   screenshot — `devicectl` offers no capture and the device surface is only observable by hand.
+
+## 4. The launch pass was one unhandled rejection
+
+Noticed as a vitest footer — `6 errors`, exit 1 — on `src/ipad-home.test.tsx`, reported for the
+whole file rather than any one test. Six tests render `<IpadHome />` without a `credentialStore`, so
+they reach the real `mobileCredentialStore` → the `SecureStore` Capacitor plugin, which under jsdom
+rejects with `"SecureStore" plugin is not implemented on web`. That rejection came out of the
+mount-time auto-login effect, whose async IIFE had no `catch`. Every assertion in the file was
+correct; the promise simply escaped, and the exit code stopped meaning anything.
+
+This is not jsdom-only hygiene. **The read rejects on a real device too**: the iOS Keychain item is
+`AfterFirstUnlockThisDeviceOnly`, so a launch before the first unlock rejects, and
+`SecureStorePlugin.swift` rejects on any other Keychain error. The effect now absorbs it.
+
+**Reporting it was the wrong first answer.** The first version wrote the failure to
+`connectionMessage`, which broke `reports an unreachable endpoint instead of claiming validation`: a
+mount-time message can land *after* the message for an action the person just took, and overwrite
+it. That ordering hazard is real, not a test artifact — so the `catch` is deliberately silent. With
+nothing read there is no auto-login, and the connection form underneath is already the fallback;
+this codebase logs nothing from these modules, so silence is consistent too.
+
+| `npm run test:ui -- --run src/ipad-home.test.tsx` | Result |
+| --- | --- |
+| Before | `6 errors`, exit 1 |
+| After | `46 passed`, **0 errors**, exit 0 |
+
+A test pins the decision from the other side: a store that throws leaves the connection surface
+intact and carries no error text. The rejection itself is guarded by the error count being zero —
+there is no assertion that can see an unhandled rejection directly.

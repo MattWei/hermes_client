@@ -415,16 +415,28 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
     }
     autoLoginAttempted.current = true
     void (async () => {
-      const stored = await credentialStore.readAutoLogin()
-      if (!stored) {
-        return
+      try {
+        const stored = await credentialStore.readAutoLogin()
+        if (!stored) {
+          return
+        }
+        setMode('secure')
+        setBackendAddress(stored.baseUrl)
+        setRemoteUsername(stored.username)
+        setRemotePassword(stored.password)
+        setAutoLogin(true)
+        await connectRemoteGateway(stored)
+      } catch {
+        /**
+         * Deliberately silent. The read really does fail — the iOS Keychain item is
+         * `AfterFirstUnlockThisDeviceOnly`, so a launch before the first unlock rejects, as does any
+         * other Keychain error (`SecureStorePlugin.swift`) — but this mount-time pass has nothing to
+         * add to the surface. With nothing read there is no auto-login and the connection form
+         * underneath is already the fallback, while reporting it through `connectionMessage` races
+         * whatever the person is doing: a stale mount-time warning can overwrite the answer to an
+         * action they just took.
+         */
       }
-      setMode('secure')
-      setBackendAddress(stored.baseUrl)
-      setRemoteUsername(stored.username)
-      setRemotePassword(stored.password)
-      setAutoLogin(true)
-      await connectRemoteGateway(stored)
     })()
     // Mount-only: this is the auto-login pass, not a reaction to a state change.
     // eslint-disable-next-line react-hooks/exhaustive-deps

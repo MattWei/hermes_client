@@ -903,6 +903,25 @@ describe('IpadHome', () => {
     expect(screen.queryByText('No session selected')).toBeNull()
   })
 
+  it('does not let a refusing credential store clobber the connection surface', async () => {
+    // The iOS Keychain item is AfterFirstUnlock, so a launch before the first unlock rejects the
+    // read and the native plugin rejects with it. That must be absorbed: the connection form is
+    // already the fallback, and a mount-time warning must never overwrite the answer to an action
+    // the person has just taken. The regression guard for the rejection itself is that vitest
+    // reports zero unhandled errors for this file.
+    const readAutoLogin = vi.fn(async () => {
+      throw new Error('Unable to securely read credential (errSecInteractionNotAllowed)')
+    })
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin, readLanSessionToken: vi.fn(async () => null), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} />)
+
+    await waitFor(() => expect(readAutoLogin).toHaveBeenCalled())
+    expect(screen.queryByText(/Unable to securely read credential/)).toBeNull()
+    expect(screen.getByRole('combobox', { name: 'Connection mode' })).toBeTruthy()
+    expect(screen.getByRole('textbox', { name: 'Backend address' })).toBeTruthy()
+  })
+
   it('adopts the gateway default profile and loads that store on connect', async () => {
     const requested: string[] = []
     const get = vi.fn(async (path: string) => {

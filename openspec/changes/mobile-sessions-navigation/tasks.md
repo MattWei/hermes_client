@@ -213,6 +213,21 @@
       inset header as well as in the sidebar row, and a brand-new session keeps a label instead of
       reading as "No session selected".
 
+## Phase M — the launch pass's unhandled rejection (follow-up)
+
+- [x] M1 `npm run test:ui` reported `6 errors` and exited 1 on `ipad-home.test.tsx`. Six tests render
+      `<IpadHome />` without a `credentialStore`, so they reached the real `SecureStore` Capacitor
+      plugin, which rejects under jsdom; the mount-time auto-login effect had no `catch`, so the
+      rejection escaped unhandled. Assertions were never wrong — the exit code was.
+- [x] M2 Absorb it in that effect. Not jsdom-only: the read rejects on a device too — the iOS Keychain
+      item is `AfterFirstUnlockThisDeviceOnly`, so a launch before the first unlock rejects, and
+      `SecureStorePlugin.swift` rejects on any other Keychain error.
+- [x] M3 Report it **silently**. The first version wrote the failure to `connectionMessage` and broke
+      `reports an unreachable endpoint instead of claiming validation`: a mount-time message can land
+      after the message for an action the person just took and overwrite it. Nothing read means no
+      auto-login, and the connection form is already the fallback. Recorded in
+      `evidence/auto-login-and-validation.md` §4.
+
 ## Verification
 
 - [x] List → session round-trip on the iPad simulator (back transition still unit-test only).
