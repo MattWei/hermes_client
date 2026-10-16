@@ -173,6 +173,23 @@
       `dashboard.basic_auth.secret` on the backend, which invalidates every live client once. The
       user has deferred this; it stays open rather than being recorded as done.
 
+## Phase K — returning to the last conversation
+
+- [x] K1 Remember the open conversation, keyed by profile (a session id is only unique inside one,
+      and switching profile is a re-home rather than a scroll).
+- [x] K2 Restore it through an effect that waits for the gateway, the REST client and a non-empty
+      list — reading `rest` from the list callback was unreliable, because the state may not have
+      landed yet and `openStoredSession` would bail on its guard.
+- [x] K3 Keep the hint across a sign-out. Logging out drops the connection, not the place; the next
+      launch reconnects on its own and should land back where the user was reading. **User's call**,
+      after an initial version cleared it.
+- [x] K4 Re-arm the one-attempt-per-surface guard on disconnect. It was spent by the first connect,
+      so signing in again in the same run landed on the list — the defect the user actually hit.
+- [x] K5 Drop the hint only when it can no longer be honoured: the session was deleted, or the id
+      failed to resolve. A stale id is never retried on the next launch.
+- [x] K6 **Verified on hardware by the user**: relaunch, and sign-out-then-sign-in, both return to
+      the conversation.
+
 ## Verification
 
 - [x] List → session round-trip on the iPad simulator (back transition still unit-test only).
