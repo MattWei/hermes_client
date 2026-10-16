@@ -401,8 +401,11 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
 
   function disconnectGateway() {
     gateway?.close()
-    // Signing out drops the connection, not the place: reconnecting (the next launch reconnects on
-    // its own) returns to the conversation the user was reading before.
+    // Signing out drops the connection, not the place: reconnecting — on the next launch, or on a
+    // sign-in a moment later — returns to the conversation the user was reading. Arming the
+    // restore again is what lets the same run do it; without this the one-attempt-per-surface
+    // guard would stay spent and a fresh sign-in would land on the list.
+    restoreAttempted.current = false
     resetGatewayState('Gateway disconnected.')
   }
 

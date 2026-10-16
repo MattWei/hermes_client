@@ -1362,4 +1362,57 @@ describe('IpadHome', () => {
     expect(window.localStorage.getItem('hermes.mobile.last-session.default')).toBe(ID)
   })
 
+  it('reopens the conversation when signing in again in the same run', async () => {
+    // Signing out and back in without a relaunch must land in the same place: the one-attempt
+    // guard has to re-arm on disconnect or the second connect starts on the list.
+    const ID = 'stored-90'
+    window.localStorage.clear()
+    const get = vi.fn(async (path: string) => {
+      if (path === '/api/profiles') {
+        return new Response(JSON.stringify({ profiles: [] }))
+      }
+      if (path.includes('/messages')) {
+        return new Response(JSON.stringify({
+          messages: [{ content: 'Read this', role: 'assistant', timestamp: 1 }],
+          session_id: ID
+        }))
+      }
+      return new Response(JSON.stringify({
+        sessions: [{ id: ID, pinned: false, preview: 'Trip planning', title: null }]
+      }))
+    })
+    const request = vi.fn(async (method: string) => method === 'session.resume'
+      ? { session_id: 'runtime-1', session_key: ID, stored_session_id: ID }
+      : {})
+
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request }))} createRestClient={vi.fn(() => ({ get, patch: vi.fn(), post: vi.fn(), remove: vi.fn() }))} />)
+
+    const connect = () => {
+      fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
+      fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'http://10.10.10.10:9119' } })
+      fireEvent.change(screen.getByLabelText('LAN session token'), { target: { value: 'lan-token' } })
+      // Signing out keeps the form filled in (only the connection is dropped), so the acknowledgement
+      // may already be ticked — clicking it again would clear it and disable the button.
+      const acknowledged = screen.getByRole('checkbox', { name: 'I understand this LAN connection uses unencrypted HTTP and WS' }) as HTMLInputElement
+      if (!acknowledged.checked) {
+        fireEvent.click(acknowledged)
+      }
+      fireEvent.click(screen.getByRole('button', { name: 'Connect LAN gateway' }))
+    }
+
+    connect()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open Trip planning' })).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'Open Trip planning' }))
+    await waitFor(() => expect(window.localStorage.getItem('hermes.mobile.last-session.default')).toBe(ID))
+
+    fireEvent.click(screen.getByRole('button', { name: 'logout' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Connect LAN gateway' })).toBeTruthy())
+
+    connect()
+
+    await waitFor(() => expect(screen.getByText('Read this')).toBeTruthy())
+  })
+
 })
