@@ -19,7 +19,7 @@ import type { MobileGatewaySocketConfig } from './mobile-gateway-transport'
 import { parseMobileConnection, type MobileConnectionMode } from './mobile-connection'
 import { Codicon } from './components/ui/codicon'
 import { IpadSessionDetail } from './ipad-session-detail'
-import { IpadShell } from './ipad-shell'
+import { IpadShell, sessionLabel } from './ipad-shell'
 
 interface IpadHomeProps {
   connectGateway?: (config: MobileGatewaySocketConfig) => Promise<MobileGatewayRequest & MobilePromptGateway & { close(): void }>
@@ -620,10 +620,14 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
     }
   }
 
-  // Title of the session shown in the inset; null while no session is open.
-  const activeTitle = activeStoredSessionId
-    ? sessions.find(session => session.id === activeStoredSessionId)?.title || 'Untitled session'
-    : null
+  // Title of the session shown in the inset; null while no session is open. The sidebar's chain, so
+  // a session the backend never auto-titled reads as its preview in both places. A brand-new session
+  // has no row yet — the backend persists one only on the first turn — and has to keep a label
+  // rather than read as "no session selected" while it is the open one.
+  const activeSession = activeStoredSessionId
+    ? sessions.find(session => session.id === activeStoredSessionId)
+    : undefined
+  const activeTitle = activeStoredSessionId ? sessionLabel(activeSession) : null
 
   // Connected: the desktop-shaped layout — collapsible session sidebar plus the open session.
   if (gateway) {

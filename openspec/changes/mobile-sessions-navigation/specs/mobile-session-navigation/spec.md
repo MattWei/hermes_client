@@ -51,3 +51,28 @@ the diagram renderer lazily, so the cold-start path does not include them.
 - **WHEN** a transcript containing a code block is displayed
 - **THEN** the highlighter chunk is loaded on demand
 - **AND THEN** the initial application start does not load it.
+
+### Requirement: A session is labelled consistently wherever it appears
+
+The mobile client SHALL identify an open session by the same label in the sidebar row and in the
+header above its transcript, falling back through the session's title, then its preview, then a
+placeholder.
+
+#### Scenario: Session the backend never auto-titled
+
+- **WHEN** a session has a preview but no title
+- **THEN** both the sidebar row and the header above the transcript show the preview
+- **AND THEN** the placeholder is not shown for that session.
+
+#### Scenario: Session with a title
+
+- **WHEN** a session has a title
+- **THEN** both the sidebar row and the header above the transcript show the title.
+
+#### Scenario: Session the backend has no row for yet
+
+- **WHEN** a session has just been created and is open, and the backend has not persisted a row for
+  it (it writes one on the first turn)
+- **THEN** the header above the transcript labels it with the same placeholder the list uses for a
+  session with nothing to show
+- **AND THEN** the header does not read as though no session were open.

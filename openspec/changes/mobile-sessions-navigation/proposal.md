@@ -41,5 +41,11 @@ touch `window.hermesDesktop`**, and the shell is built on the pane tree and the 
 
 ## Current status
 
-Assessment and technical spike complete (see `design.md` and
-`evidence/mobile-markdown-renderer-spike.md`). No implementation started.
+Implemented on iOS through Phase L: the desktop-shaped shell (collapsible sidebar, date-grouped
+searchable session list, profile switching, long-press rename/delete/pin, restore of the last
+conversation) and the session detail (streamed transcript, composer, approvals, tool activity),
+over a remote HTTPS sign-in. Phase-by-phase state and the evidence for each are in `tasks.md` and
+`evidence/`; the phases that produced them, and the defects that shaped their method, are recorded
+there rather than here.
+
+Not done: the Android regression (A2.9) and the secure-mode OAuth/PKCE path.

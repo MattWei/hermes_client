@@ -834,6 +834,75 @@ describe('IpadHome', () => {
     expect(screen.queryByRole('button', { name: 'Open Untitled session' })).toBeNull()
   })
 
+  it('labels the open session identically in the inset header and the sidebar row', async () => {
+    // The sidebar row fell back to the preview, the header above the conversation did not, so one
+    // title-less session read as two different things on the same screen.
+    const request = vi.fn(async (method: string) => method === 'session.resume'
+      ? { session_id: 'runtime-9', session_key: 'stored-9' }
+      : { status: 'accepted' })
+    const get = vi.fn(async (path: string) => {
+      if (path === '/api/profiles') {
+        return new Response(JSON.stringify({ profiles: [] }))
+      }
+      if (path.includes('/messages')) {
+        return new Response(JSON.stringify({ messages: [], session_id: 'stored-9' }))
+      }
+      return new Response(JSON.stringify({
+        sessions: [{ id: 'stored-9', preview: 'Explain the openspec change', title: null }]
+      }))
+    })
+
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request }))} createRestClient={vi.fn(() => ({ get, patch: vi.fn(), post: vi.fn(), remove: vi.fn() }))} />)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'http://10.10.10.10:9119' } })
+    fireEvent.change(screen.getByLabelText('LAN session token'), { target: { value: 'lan-token' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I understand this LAN connection uses unencrypted HTTP and WS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Connect LAN gateway' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open Explain the openspec change' })).toBeTruthy())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Explain the openspec change' }))
+    await waitFor(() => expect(screen.queryByText('No session selected')).toBeNull())
+
+    // Sidebar row and inset header, both reading as the preview — and no placeholder anywhere.
+    expect(screen.getAllByText('Explain the openspec change').length).toBeGreaterThanOrEqual(2)
+    expect(screen.queryByText('Untitled session')).toBeNull()
+  })
+
+  it('keeps a label on a brand-new session the list has no row for yet', async () => {
+    // The backend persists a row only on the first turn, so a freshly created session is open and
+    // absent from the list at the same time. Labelling it "null" would read as "no session
+    // selected" while it is the session on screen.
+    const request = vi.fn(async (method: string) => method === 'session.create'
+      ? { session_id: 'runtime-7', stored_session_id: 'stored-7' }
+      : { status: 'accepted' })
+    const get = vi.fn(async (path: string) => {
+      if (path === '/api/profiles') {
+        return new Response(JSON.stringify({ profiles: [] }))
+      }
+      return new Response(JSON.stringify({ sessions: [] }))
+    })
+
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request }))} createRestClient={vi.fn(() => ({ get, patch: vi.fn(), post: vi.fn(), remove: vi.fn() }))} />)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'http://10.10.10.10:9119' } })
+    fireEvent.change(screen.getByLabelText('LAN session token'), { target: { value: 'lan-token' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I understand this LAN connection uses unencrypted HTTP and WS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Connect LAN gateway' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Start new session' })).toBeTruthy())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start new session' }))
+    await waitFor(() => expect(screen.getByText('Session runtime-7 created.')).toBeTruthy())
+
+    expect(screen.getByText('Untitled session')).toBeTruthy()
+    expect(screen.queryByText('No session selected')).toBeNull()
+  })
+
   it('adopts the gateway default profile and loads that store on connect', async () => {
     const requested: string[] = []
     const get = vi.fn(async (path: string) => {

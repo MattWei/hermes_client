@@ -43,9 +43,12 @@ interface SessionGroup {
 /**
  * Mirrors the desktop sidebar's fallback chain (title -> preview -> placeholder): most sessions
  * never get an auto-title, and the preview is what actually identifies them to a person.
+ *
+ * Accepts nothing at all: the inset header can be showing a conversation the backend has no row for
+ * yet, since it persists one only on the first turn.
  */
-function sessionLabel(session: MobileSessionListItem): string {
-  return session.title?.trim() || session.preview?.trim() || 'Untitled session'
+export function sessionLabel(session?: MobileSessionListItem | null): string {
+  return session?.title?.trim() || session?.preview?.trim() || 'Untitled session'
 }
 
 export function IpadShell({

@@ -190,6 +190,29 @@
 - [x] K6 **Verified on hardware by the user**: relaunch, and sign-out-then-sign-in, both return to
       the conversation.
 
+## Phase L — one session label, two places
+
+- [x] L1 The inset header above the conversation body and the sidebar row disagreed. The row fell
+      back title → preview → placeholder; the header fell back title → placeholder only. A session
+      the backend never auto-titled therefore read as its preview in the list and as
+      "Untitled session" above the body. Auto-titling only fires after a complete exchange, so this
+      is the common case, not an edge one.
+- [x] L2 Make both call one function (`sessionLabel`, exported from `ipad-shell.tsx`) instead of
+      keeping two copies of the same chain — the defect was the copies drifting apart, not the
+      chain itself. Mirrors the desktop's single `sessionTitle()` in `lib/chat-runtime.ts`.
+- [x] L3 Cover it in `ipad-home.test.tsx`: with a title-less session open, the header shows the
+      preview and no "Untitled session" is on the surface. The existing preview test only asserts
+      the sidebar row, which is why this slipped through. Confirmed RED against the old code
+      (`1 failed | 43 passed`) and GREEN after; see `evidence/session-label.md`.
+- [x] L4 A brand-new session has no row — the backend persists one only on the first turn — so the
+      chain has to bottom out at the placeholder, not at "no session". The first version of this fix
+      got that wrong and made a fresh session's header read as "No session selected"; found by reading
+      `startNewSession()` rather than by a test. Covered now, and recorded in
+      `evidence/session-label.md`.
+- [x] L5 **Verified on hardware by the user**: a title-less session now reads as its preview in the
+      inset header as well as in the sidebar row, and a brand-new session keeps a label instead of
+      reading as "No session selected".
+
 ## Verification
 
 - [x] List → session round-trip on the iPad simulator (back transition still unit-test only).
