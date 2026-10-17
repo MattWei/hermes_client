@@ -799,7 +799,9 @@ describe('IpadHome', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Open Default chat' })).toBeTruthy())
 
     // Two profiles are available, so the selector appears.
-    fireEvent.change(screen.getByLabelText('Profile'), { target: { value: 'work' } })
+    // The picker is drawn, not a native `<select>`: open the menu and choose from it.
+    fireEvent.click(screen.getByRole('button', { name: 'Profile' }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'work' }))
 
     // Sessions live in per-profile stores, so the list must be re-read with the profile named —
     // filtering the already-loaded rows locally would show the wrong set.
@@ -854,7 +856,9 @@ describe('IpadHome', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Connect LAN gateway' }))
     await waitFor(() => expect(screen.getByText('Default transcript')).toBeTruthy())
 
-    fireEvent.change(screen.getByLabelText('Profile'), { target: { value: 'work' } })
+    // The picker is drawn, not a native `<select>`: open the menu and choose from it.
+    fireEvent.click(screen.getByRole('button', { name: 'Profile' }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'work' }))
 
     // A profile is its own workspace: switching must open THIS profile's last conversation, not leave
     // the user on an empty list because the one-shot restore had already fired for the old profile.
@@ -1094,7 +1098,7 @@ describe('IpadHome', () => {
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Open Default store chat' })).toBeTruthy())
     // The selection must be a real profile name, not an empty value that matches no option.
-    expect(screen.getByLabelText('Profile')).toHaveProperty('value', 'default')
+    expect(screen.getByRole('button', { name: 'Profile' }).textContent).toContain('default')
     expect(requested.some(path => path.includes('profile=default'))).toBe(true)
     expect(screen.queryByRole('option', { name: 'Default' })).toBeNull()
   })

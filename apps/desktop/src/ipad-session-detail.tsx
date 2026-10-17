@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 
 import { MarkdownTextContent } from './components/assistant-ui/markdown-text'
 import { Codicon } from './components/ui/codicon'
+import { MobileSelect, type MobileSelectOption, type MobileSelectOptionGroup } from './mobile-select'
 import { chatMessageText, type ChatMessage } from './lib/chat-messages'
 import type { MobileApprovalRequest } from './mobile-approval-client'
 import type { MobileToolActivity } from './mobile-tool-activity-client'
@@ -9,21 +10,9 @@ import type { MobileToolActivity } from './mobile-tool-activity-client'
 /** Recording is a two-tap gesture, so the composer has to show which half of it it is in. */
 export type MobileVoiceState = 'idle' | 'recording' | 'transcribing'
 
-export interface MobileComposerOption {
-  id: string
-  label: string
-}
-
-/**
- * A list of options under one heading. The model menu uses a group per provider — the provider is what
- * the switch sends, so the grouping is the data, not decoration. A group with an empty label is a flat
- * list and renders without a heading.
- */
-export interface MobileComposerOptionGroup {
-  id: string
-  items: MobileComposerOption[]
-  label: string
-}
+/** The composer's option shapes, expressed with the shared selector's types. */
+export type MobileComposerOption = MobileSelectOption
+export type MobileComposerOptionGroup = MobileSelectOptionGroup
 
 /**
  * The two selectors that sit above the input: which model answers, and how hard it thinks. Both are
@@ -42,81 +31,6 @@ export interface MobileComposerSelection {
   onSelectEffort: (level: string) => void
   /** The group id is the provider: a model id alone does not identify which provider's listing to use. */
   onSelectModel: (model: string, provider: string) => void
-}
-
-/** One selector: a quiet label with a chevron, opening a list upward from the composer. */
-function ComposerSelect({ ariaLabel, groups, label, onSelect, selectedGroupId, selectedId }: {
-  ariaLabel: string
-  groups: MobileComposerOptionGroup[]
-  label: string
-  onSelect: (id: string, groupId: string) => void
-  selectedGroupId: string
-  selectedId: string
-}) {
-  const [open, setOpen] = useState(false)
-  const listRef = useRef<HTMLDivElement | null>(null)
-
-  // Open the list on the pick that is actually in force. An open menu that starts at the top makes
-  // someone hunt for the row the pill is already advertising.
-  useEffect(() => {
-    const list = listRef.current
-    if (!open || !list) {
-      return
-    }
-    const current = list.querySelector<HTMLElement>('[aria-checked="true"]')
-    if (!current) {
-      return
-    }
-    // Move the list itself, never `scrollIntoView`: that walks every scrollable ancestor and would
-    // drag the transcript along with it.
-    const listRect = list.getBoundingClientRect()
-    const currentRect = current.getBoundingClientRect()
-    const visibleTop = listRect.top + list.clientTop
-    const visibleBottom = visibleTop + list.clientHeight
-    if (currentRect.top < visibleTop) {
-      list.scrollTop -= visibleTop - currentRect.top
-    } else if (currentRect.bottom > visibleBottom) {
-      list.scrollTop += currentRect.bottom - visibleBottom
-    }
-  }, [open])
-
-  return <div className="relative">
-    <button
-      aria-expanded={open}
-      aria-label={ariaLabel}
-      className="flex items-center gap-1 rounded-md px-1 py-0.5 text-xs text-[color:var(--ui-text-tertiary)]"
-      onClick={() => setOpen(current => !current)}
-      type="button"
-    >
-      <span className="max-w-44 truncate">{label}</span>
-      <Codicon name={open ? 'chevron-up' : 'chevron-down'} size="0.7rem" />
-    </button>
-    {open && <div
-      className="absolute bottom-full left-0 z-20 mb-1 max-h-64 w-60 overflow-y-auto rounded-xl border border-(--ui-stroke-tertiary) bg-background p-1"
-      ref={listRef}
-      role="menu"
-    >
-      {groups.map(group => <div key={group.id}>
-        {group.label && <p className="px-2 pb-0.5 pt-1 text-[0.65rem] uppercase tracking-wider text-[color:var(--ui-text-tertiary)]">
-          {group.label}
-        </p>}
-        {group.items.map(option => {
-          const checked = option.id === selectedId && group.id === selectedGroupId
-          return <button
-            aria-checked={checked}
-            className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm ${checked ? 'text-[color:var(--ui-text-primary)]' : ''}`}
-            key={option.id}
-            onClick={() => { onSelect(option.id, group.id); setOpen(false) }}
-            role="menuitemradio"
-            type="button"
-          >
-            <span className="flex-1 truncate">{option.label}</span>
-            {checked && <Codicon name="check" size="0.8rem" />}
-          </button>
-        })}
-      </div>)}
-    </div>}
-  </div>
 }
 
 interface IpadComposerProps {
@@ -171,7 +85,7 @@ export function IpadComposer({ draft, onDraftChange, onFilesChange, onSubmit, on
       <input aria-label="Attach file" className="sr-only" disabled={!sessionId} id="ipad-attachment" multiple onChange={event => onFilesChange([...pendingFiles, ...Array.from(event.target.files ?? [])])} type="file" />
       <label className="sr-only" htmlFor="ipad-message">Message composer</label>
       <div className="flex items-center gap-4 px-1 pb-1.5">
-        <ComposerSelect
+        <MobileSelect
           ariaLabel="Model"
           groups={selection.modelOptions}
           label={selection.modelLabel}
@@ -179,7 +93,7 @@ export function IpadComposer({ draft, onDraftChange, onFilesChange, onSubmit, on
           selectedGroupId={selection.modelGroup}
           selectedId={selection.modelValue}
         />
-        <ComposerSelect
+        <MobileSelect
           ariaLabel="Thinking level"
           groups={selection.effortOptions}
           label={selection.effortLabel}

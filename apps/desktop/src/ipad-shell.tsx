@@ -3,6 +3,7 @@ import {
 } from 'react'
 
 import { Codicon } from './components/ui/codicon'
+import { MobileSelect } from './mobile-select'
 import { clampSidebarWidth } from './mobile-sidebar-width'
 import { SearchField } from './components/ui/search-field'
 import {
@@ -69,15 +70,20 @@ export function IpadShell({
   // Null until the person drags: the primitives' own default width is the right starting point.
   const [sidebarWidth, setSidebarWidth] = useState<number | null>(null)
   const [resizing, setResizing] = useState(false)
-  const resizeRef = useRef<{ pointerId: number, startWidth: number, startX: number } | null>(null)
+  const resizeRef = useRef<{ clientX: number, pending: number, pointerId: number, startWidth: number } | null>(null)
+  const frameRef = useRef(0)
 
   /**
    * Drag the sidebar's right edge. Pointer events (not mouse/touch pairs) so a finger and a trackpad
    * drive the same code, and `touch-none` on the handle so the drag is not stolen by scrolling.
    */
   function beginResize(event: ReactPointerEvent<HTMLDivElement>) {
+    // A drag on iOS otherwise starts a native TEXT SELECTION: the blue selection paint covers the
+    // footer (profile picker and status line included) and looks like a stray highlight block.
+    event.preventDefault()
+    window.getSelection()?.removeAllRanges()
     const width = sidebarWidth ?? event.currentTarget.parentElement?.getBoundingClientRect().width ?? 0
-    resizeRef.current = { pointerId: event.pointerId, startWidth: width, startX: event.clientX }
+    resizeRef.current = { clientX: event.clientX, pending: width, pointerId: event.pointerId, startWidth: width }
     setResizing(true)
     event.currentTarget.setPointerCapture?.(event.pointerId)
   }
@@ -87,12 +93,32 @@ export function IpadShell({
     if (!drag || drag.pointerId !== event.pointerId) {
       return
     }
-    setSidebarWidth(clampSidebarWidth(drag.startWidth + (event.clientX - drag.startX), window.innerWidth))
+    // One width per frame: pointer events arrive far faster than the screen paints, and a state update
+    // per event re-renders the whole sidebar dozens of times a second mid-gesture.
+    drag.pending = drag.startWidth + (event.clientX - drag.clientX)
+    if (frameRef.current !== 0) {
+      return
+    }
+    frameRef.current = window.requestAnimationFrame(() => {
+      frameRef.current = 0
+      const pending = resizeRef.current?.pending
+      if (pending != null) {
+        setSidebarWidth(clampSidebarWidth(pending, window.innerWidth))
+      }
+    })
   }
 
-  function endResize() {
+  function endResize(event: ReactPointerEvent<HTMLDivElement>) {
+    if (frameRef.current !== 0) {
+      window.cancelAnimationFrame(frameRef.current)
+      frameRef.current = 0
+    }
+    if (resizeRef.current && event.currentTarget.hasPointerCapture?.(resizeRef.current.pointerId)) {
+      event.currentTarget.releasePointerCapture(resizeRef.current.pointerId)
+    }
     resizeRef.current = null
     setResizing(false)
+    window.getSelection()?.removeAllRanges()
   }
 
   // Long-press opens a small action sheet for one row; rename swaps that row for an input rather
@@ -171,10 +197,19 @@ export function IpadShell({
     <SidebarProvider
       // The width is a CSS variable on the wrapper; passing it here is how the primitives' fixed
       // container, its gap and the inset all stay in agreement.
-      className={`h-svh min-h-0${resizing ? ' [&_*]:transition-none!' : ''}`}
+      // The rail is taken out of `position: fixed` here. A fixed element whose width is dragged has a
+      // backing store WebKit reuses across the change, and the stale paint ended up ON TOP of the
+      // footer after a background/foreground cycle. In flow there is no such layer: a width change is
+      // ordinary layout. `!relative` beats the primitive's own `fixed` regardless of stylesheet order;
+      // the gap spacer the primitive uses to reserve room for a fixed rail is hidden because the rail
+      // now occupies that space itself.
+      className={`${resizing ? '[&_*]:select-none [&_*]:transition-none! ' : ''}h-svh min-h-0 [-webkit-tap-highlight-color:transparent] [&>[data-slot=sidebar]]:shrink-0 [&_[data-slot=sidebar-gap]]:hidden`}
       style={sidebarWidth == null ? undefined : { '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}
     >
-      <Sidebar collapsible="offcanvas">
+      {/* `select-none` on the whole rail, not just while dragging: a selection started by a tap can
+          outlive the tap, and the chrome has nothing worth selecting. The transcript stays selectable —
+          it lives in the inset, outside this element. */}
+      <Sidebar className="relative! select-none group-data-[state=collapsed]:hidden!" collapsible="offcanvas">
         <SidebarHeader className="pt-[max(1.5rem,env(safe-area-inset-top))]">
           {/* The inset header's trigger owns collapsing and expanding both, so the sidebar
               carries the title only. */}
@@ -332,16 +367,28 @@ export function IpadShell({
             ))}
         </SidebarContent>
 
-        <SidebarFooter className="pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+        {/* `relative z-20`: the session list above is a scroll container, which WebKit composites as its
+            own layer and can paint over a menu that escapes upward out of this footer. */}
+        <SidebarFooter className="relative z-20 shrink-0 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           {profiles.length > 1 && <div className="px-1 pb-1">
-            <select
-              aria-label="Profile"
-              className="min-h-10 w-full rounded-md bg-[var(--ui-bg-primary)] px-2 py-2 text-sm"
-              onChange={event => onSelectProfile(event.target.value)}
-              value={activeProfile}
-            >
-              {profiles.map(profile => <option key={profile.name} value={profile.name}>{profile.displayName}</option>)}
-            </select>
+            {/* Drawn, not a native `<select>`: the platform control left a stale composited layer in
+                this exact spot after repeated width changes, visible again after backgrounding. */}
+            <MobileSelect
+              ariaLabel="Profile"
+              groups={[{
+                id: '',
+                items: profiles.map(profile => ({ id: profile.name, label: profile.displayName || profile.name })),
+                label: ''
+              }]}
+              label={profiles.find(profile => profile.name === activeProfile)?.displayName || activeProfile || 'Profile'}
+              onSelect={profile => {
+                if (profile !== activeProfile) {
+                  onSelectProfile(profile)
+                }
+              }}
+              selectedGroupId=""
+              selectedId={activeProfile}
+            />
           </div>}
           {/* Which gateway this is, and whether anything is wrong — not a log. Session chatter and
               errors surface under the session title instead. */}
@@ -365,7 +412,8 @@ export function IpadShell({
         <div
           aria-label="Resize session list"
           aria-orientation="vertical"
-          className="absolute inset-y-0 right-0 z-30 w-3 cursor-col-resize touch-none"
+          className="absolute inset-y-0 right-0 z-30 w-3 cursor-col-resize touch-none select-none [-webkit-touch-callout:none]"
+          onContextMenu={event => event.preventDefault()}
           onPointerCancel={endResize}
           onPointerDown={beginResize}
           onPointerMove={moveResize}
@@ -376,8 +424,11 @@ export function IpadShell({
 
       {/* `min-w-0` is load-bearing: a flex item's default `min-width: auto` refuses to shrink below its
           own content, so a wider sidebar pushed this pane off the right edge instead of narrowing it —
-          which is how the composer ended up cut off. */}
-      <SidebarInset className="min-w-0 overflow-x-hidden">
+          which is how the composer ended up cut off.
+          No `overflow-x-hidden` here: it turned the inset into a scroll container, and WebKit then
+          stopped painting static descendants of the composer inside it (the model and thinking controls
+          existed, hit-tested and measured 135x42 — and drew nothing). */}
+      <SidebarInset className="min-w-0">
         <header className="flex items-center gap-2 border-b border-(--ui-stroke-tertiary) px-3 pb-2 pt-[max(1.5rem,env(safe-area-inset-top))]">
           <SidebarTrigger className="-ml-1" />
           <div className="min-w-0 flex-1">

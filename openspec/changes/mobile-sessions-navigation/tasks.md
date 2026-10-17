@@ -341,6 +341,12 @@
       `evidence/sidebar-resize.md`.
       **Confirmed on hardware** after the `min-w-0` fix: the rail widens and the conversation narrows
       with it (user: "已经正常缩小").
+- [x] P10a **A drag must not become a text selection.** Repeated resizes left a highlight block at the
+      bottom of the rail with the profile picker and status line hidden — WebKit's native selection, which
+      `touch-none` does not prevent. `preventDefault` + `select-none` + `-webkit-touch-callout: none` on
+      the grip, `select-none` across the shell while dragging, and `removeAllRanges()` at both ends. Width
+      updates are coalesced to one per animation frame, and the footer is `shrink-0` so the list cannot
+      squeeze it out.
 - [x] P9a **The footer reports the connected backend only** (settled with the user after two wrong cuts:
       platform-as-headline, then platform-as-muted-detail). `gateway_platforms` is no longer parsed at
       all — `Backend ready` / `Backend stopped` / `<state>`, or nothing when the payload does not say.
@@ -372,6 +378,21 @@
       the desktop's `trigger-popover` says so in as many words, so the mobile panel does the same rect
       arithmetic on its own `scrollTop`. Keyed on `provider/model`: two providers can list the same
       model name.
+
+## Phase Q — device-only paint failures
+
+- [x] Q1 **The composer's model and thinking controls were invisible on device** (reported after the
+      sidebar work). They existed, hit-tested and measured `135x42` with opacity 1 — and drew nothing.
+      Cause: an `overflow-x-hidden` I had added to `SidebarInset` while fixing the resize; it turns the
+      pane into a scroll container and WebKit stopped painting static descendants inside it. Removed —
+      `min-w-0` was the real fix for the width problem. `evidence/webkit-paint-failures.md`.
+- [x] Q2 **A dropdown that opens upward over a scrolling list is not painted.** `absolute bottom-full`,
+      `z-index: 50`, a stacking context on the footer — none of it helped. The list now renders through a
+      portal into `document.body` as a fixed-position layer, which has no scrolling ancestor.
+- [x] Q3 The "close on scroll" listener closed the menu on its own programmatic scroll-to-current-row.
+      Removed; outside tap and Escape remain.
+- [x] Q4 The rail went in-flow (`relative!`) and the now-dead re-raster mitigation was deleted rather
+      than left behind with a false premise.
 
 ## Verification
 

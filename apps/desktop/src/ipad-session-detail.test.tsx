@@ -87,6 +87,26 @@ describe('composer selectors', () => {
     expect(current.onSelectModel).toHaveBeenCalledWith('claude-sonnet-4-8', 'anthropic')
   })
 
+  it('closes when the person taps somewhere else', () => {
+    renderComposer()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Model' }))
+    expect(screen.getByRole('menu')).toBeTruthy()
+
+    // A menu that only closes on a second tap of its own trigger reads as stuck.
+    fireEvent.pointerDown(document.body)
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('stays open when the tap lands inside the list', () => {
+    renderComposer()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Model' }))
+    fireEvent.pointerDown(screen.getByRole('menu'))
+
+    expect(screen.getByRole('menu')).toBeTruthy()
+  })
+
   it('marks the level in force and closes on a pick', () => {
     const current = selection()
     renderComposer(current)
