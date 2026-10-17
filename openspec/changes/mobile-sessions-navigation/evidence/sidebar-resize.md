@@ -36,25 +36,25 @@ screen hides the session it is meant to be a layer over.
 wins, because "never fills the screen" is the promise that has to hold unconditionally; the minimum is
 only a comfort floor.
 
-## A drag that selects text instead of resizing
+## A first, wrong diagnosis: "the drag selects text"
 
 Reported: repeatedly changing the width left "a highlighted block" at the bottom of the rail, with the
 profile picker and the status line no longer visible.
 
-That is what a **native text selection** looks like: WebKit starts one on `pointerdown` unless the default
-is prevented, paints the selection above the content, and the footer area under the finger is exactly
-where the drag begins. `touch-none` stops the page scrolling; it does not stop selection.
+The first reading was that WebKit had started a **native text selection** on `pointerdown` and painted it
+over the footer. That was wrong — the block survived taps and reappeared after backgrounding, which a
+selection never does. The section is kept because the defences shipped with it are still correct and
+cheap, and because the misread cost three builds:
 
-Three defences, all in `beginResize`/`endResize`:
+- `event.preventDefault()` on `pointerdown`, `select-none` + `[-webkit-touch-callout:none]` on the grip.
+- `select-none` across the shell **while resizing only**.
+- `getSelection()?.removeAllRanges()` on both ends.
 
-- `event.preventDefault()` on `pointerdown`, and `select-none` + `[-webkit-touch-callout:none]` on the
-  grip — on iOS the callout is a second way to turn a drag into a selection.
-- `select-none` across the shell **while resizing only**, so nothing can be selected mid-gesture.
-- `getSelection()?.removeAllRanges()` on both ends, which clears one that started anyway.
+Also shipped alongside and still worth keeping: the width updates **once per animation frame** (pointer
+events arrive far faster than the screen paints) and `SidebarFooter` is `shrink-0`.
 
-Also fixed alongside it: the width now updates **once per animation frame** (pointer events arrive far
-faster than the screen paints, and a state update per event re-rendered the whole rail dozens of times a
-second mid-drag), and `SidebarFooter` is `shrink-0` so a long session list can never squeeze it out.
+The real cause was the **stale backing store of a `position: fixed` element whose width was dragged** —
+see "The stale paint, from a screenshot" below, and `webkit-paint-failures.md` for the general shape.
 
 ## The stale paint, from a screenshot
 
