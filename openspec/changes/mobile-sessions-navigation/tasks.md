@@ -304,6 +304,24 @@
       recording keeps writing into an editor the person has left — and the transcript joins the draft
       that stood there when recording began, so dictating twice appends instead of eating the first half.
 
+## Phase P — model and thinking selectors
+
+- [x] P1 Two selectors above the input, on the user's ask: the model name and the thinking level, each
+      with a chevron, opening a list upward. Labels come from the desktop's own pure modules
+      (`lib/model-status-label`, `lib/reasoning-effort`) so `Med` means what it means on the desktop —
+      a second formatter is how the session-label bug started.
+- [x] P2 `mobile-model-client.ts` over the gateway's real contract: `model.options` for the catalog,
+      `config.get { key: 'reasoning' }` for the profile level, `config.set { key: 'model' }` and
+      `config.set { key: 'reasoning' }` to change them. The key is `model`, not `agent.model` — the
+      backend matches `_CONFIG_SETTERS` exactly — and it answers 4001 without a live session, which is
+      why the pills live in the session detail rather than the list.
+- [x] P3 **Expensive models need two taps**, the user's choice: the first changes nothing and shows the
+      gateway's own `confirm_message`; the same model tapped again sends `confirm_expensive_model`.
+      A test asserts that parameter is absent from a first pick — a single tap that quietly spends
+      money is this control's worst failure mode.
+- [ ] P4 **Verified on hardware**: the pills show the live model and level, and each list changes it.
+      Contract and reasoning: `evidence/composer-selectors.md`.
+
 ## Verification
 
 - [x] List → session round-trip on the iPad simulator (back transition still unit-test only).

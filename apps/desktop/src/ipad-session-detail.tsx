@@ -1,4 +1,4 @@
-import { useEffect, useRef, type FormEvent, type KeyboardEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 
 import { MarkdownTextContent } from './components/assistant-ui/markdown-text'
 import { Codicon } from './components/ui/codicon'
@@ -9,6 +9,61 @@ import type { MobileToolActivity } from './mobile-tool-activity-client'
 /** Recording is a two-tap gesture, so the composer has to show which half of it it is in. */
 export type MobileVoiceState = 'idle' | 'recording' | 'transcribing'
 
+export interface MobileComposerOption {
+  id: string
+  label: string
+}
+
+/**
+ * The two selectors that sit above the input: which model answers, and how hard it thinks. Both are
+ * session-scoped on the gateway — a pick here must not rewrite the profile's default.
+ */
+export interface MobileComposerSelection {
+  effortLabel: string
+  effortOptions: MobileComposerOption[]
+  modelLabel: string
+  modelOptions: MobileComposerOption[]
+  onSelectEffort: (level: string) => void
+  onSelectModel: (model: string) => void
+}
+
+/** One selector: a quiet label with a chevron, opening a list upward from the composer. */
+function ComposerSelect({ ariaLabel, label, onSelect, options }: {
+  ariaLabel: string
+  label: string
+  onSelect: (id: string) => void
+  options: MobileComposerOption[]
+}) {
+  const [open, setOpen] = useState(false)
+
+  return <div className="relative">
+    <button
+      aria-expanded={open}
+      aria-label={ariaLabel}
+      className="flex items-center gap-1 rounded-md px-1 py-0.5 text-xs text-[color:var(--ui-text-tertiary)]"
+      onClick={() => setOpen(current => !current)}
+      type="button"
+    >
+      <span className="max-w-44 truncate">{label}</span>
+      <Codicon name={open ? 'chevron-up' : 'chevron-down'} size="0.7rem" />
+    </button>
+    {open && <div
+      className="absolute bottom-full left-0 z-20 mb-1 max-h-64 w-60 overflow-y-auto rounded-xl border border-(--ui-stroke-tertiary) bg-background p-1"
+      role="menu"
+    >
+      {options.map(option => <button
+        className="block w-full truncate rounded-lg px-2 py-1.5 text-left text-sm"
+        key={option.id}
+        onClick={() => { onSelect(option.id); setOpen(false) }}
+        role="menuitem"
+        type="button"
+      >
+        {option.label}
+      </button>)}
+    </div>}
+  </div>
+}
+
 interface IpadComposerProps {
   draft: string
   onDraftChange: (value: string) => void
@@ -16,12 +71,13 @@ interface IpadComposerProps {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   onVoiceInput: () => void
   pendingFiles: File[]
+  selection: MobileComposerSelection
   sessionId: string | null
   voiceState: MobileVoiceState
 }
 
 /** Message composer, shared by the offline surface and the session detail view. */
-export function IpadComposer({ draft, onDraftChange, onFilesChange, onSubmit, onVoiceInput, pendingFiles, sessionId, voiceState }: IpadComposerProps) {
+export function IpadComposer({ draft, onDraftChange, onFilesChange, onSubmit, onVoiceInput, pendingFiles, selection, sessionId, voiceState }: IpadComposerProps) {
   const fieldRef = useRef<HTMLTextAreaElement>(null)
 
   /**
@@ -59,6 +115,20 @@ export function IpadComposer({ draft, onDraftChange, onFilesChange, onSubmit, on
       </div>}
       <input aria-label="Attach file" className="sr-only" disabled={!sessionId} id="ipad-attachment" multiple onChange={event => onFilesChange([...pendingFiles, ...Array.from(event.target.files ?? [])])} type="file" />
       <label className="sr-only" htmlFor="ipad-message">Message composer</label>
+      <div className="flex items-center gap-4 px-1 pb-1.5">
+        <ComposerSelect
+          ariaLabel="Model"
+          label={selection.modelLabel}
+          onSelect={selection.onSelectModel}
+          options={selection.modelOptions}
+        />
+        <ComposerSelect
+          ariaLabel="Thinking level"
+          label={selection.effortLabel}
+          onSelect={selection.onSelectEffort}
+          options={selection.effortOptions}
+        />
+      </div>
       <div className="flex items-end gap-2 rounded-2xl border border-(--ui-stroke-tertiary) bg-background px-2.5 py-1">
         <label
           aria-disabled={!sessionId}
@@ -111,6 +181,7 @@ interface IpadSessionDetailProps {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   onVoiceInput: () => void
   pendingFiles: File[]
+  selection: MobileComposerSelection
   sessionId: string | null
   toolActivities: MobileToolActivity[]
   voiceState: MobileVoiceState
@@ -118,7 +189,7 @@ interface IpadSessionDetailProps {
 
 /** Mobile session detail view: one conversation, with a way back to the list. */
 export function IpadSessionDetail({
-  approval, draft, messages, onDraftChange, onFilesChange, onRespondToApproval, onSubmit, onVoiceInput, pendingFiles, sessionId, toolActivities, voiceState
+  approval, draft, messages, onDraftChange, onFilesChange, onRespondToApproval, onSubmit, onVoiceInput, pendingFiles, selection, sessionId, toolActivities, voiceState
 }: IpadSessionDetailProps) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -155,6 +226,7 @@ export function IpadSessionDetail({
         onSubmit={onSubmit}
         onVoiceInput={onVoiceInput}
         pendingFiles={pendingFiles}
+        selection={selection}
         sessionId={sessionId}
         voiceState={voiceState}
       />

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { createMobileApprovalClient, type MobileApprovalRequest } from './mobile-approval-client'
 import { createMobileAttachmentClient, type MobileFileAttachment } from './mobile-attachment-client'
 import { createMobileDictationClient } from './mobile-dictation-client'
+import { createMobileModelClient, type MobileModelOption } from './mobile-model-client'
 import { mobileCredentialStore } from './capacitor-mobile-credential-store'
 import { connectMobileGateway } from './mobile-gateway-client'
 import { assistantTextPart, appendAssistantTextPart, mergeFinalAssistantText, textPart, type ChatMessage } from './lib/chat-messages'
@@ -21,8 +22,10 @@ import { createMobileVoiceRecorder, readableMicrophoneError, type MobileVoiceRec
 import type { MobileGatewaySocketConfig } from './mobile-gateway-transport'
 import { parseMobileConnection, type MobileConnectionMode } from './mobile-connection'
 import { Codicon } from './components/ui/codicon'
-import { IpadSessionDetail, type MobileVoiceState } from './ipad-session-detail'
+import { IpadSessionDetail, type MobileComposerSelection, type MobileVoiceState } from './ipad-session-detail'
 import { IpadShell, sessionLabel } from './ipad-shell'
+import { DEFAULT_REASONING_EFFORT, REASONING_EFFORTS, reasoningEffortLabel } from '@/lib/reasoning-effort'
+import { displayModelName } from '@/lib/model-status-label'
 
 /**
  * The language the microphone listens for. A device recogniser has to pick a model up front, so unlike
@@ -80,6 +83,11 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
   /** The draft as it stood when recording started, so a live partial replaces its own text and not the person's. */
   const voiceBaseRef = useRef('')
   const speechRecognizer = useRef(createMobileSpeechRecognizer())
+  const [modelChoice, setModelChoice] = useState<{ effort: string, model: string, models: MobileModelOption[], provider: string }>({
+    effort: '', model: '', models: [], provider: ''
+  })
+  /** The model whose first tap the gateway refused for cost — a second tap on it is the confirmation. */
+  const pendingModelRef = useRef<string | null>(null)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [approval, setApproval] = useState<MobileApprovalRequest | null>(null)
   const [toolActivities, setToolActivities] = useState<MobileToolActivity[]>([])
@@ -740,6 +748,86 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
     return createMobileDictationClient(restClient).transcribe(recording, activeProfile || undefined)
   }
 
+  /**
+   * Read the catalog and the profile's level once a session is open. Both pills are session-scoped, and
+   * switching the model needs a live session at all — the gateway refuses `config.set model` without one.
+   */
+  useEffect(() => {
+    if (!gateway || !sessionId) {
+      return
+    }
+    let cancelled = false
+    const client = createMobileModelClient(gateway)
+    void (async () => {
+      try {
+        const [options, effort] = await Promise.all([client.options(), client.currentEffort()])
+        if (cancelled) {
+          return
+        }
+        setModelChoice(current => ({
+          // A level already chosen here wins over the profile's: it is the one in force.
+          effort: current.effort || effort || DEFAULT_REASONING_EFFORT,
+          model: options.model || current.model,
+          models: options.models.length > 0 ? options.models : current.models,
+          provider: options.provider || current.provider
+        }))
+      } catch {
+        // A gateway that will not report its catalog leaves the pills showing what they already had.
+      }
+    })()
+    return () => { cancelled = true }
+  }, [gateway, sessionId])
+
+  /**
+   * The first tap on a model the gateway flags as expensive changes nothing: its own message goes to the
+   * status line and the same model has to be tapped again. Never confirm on one tap — that is money.
+   */
+  async function selectModel(model: string) {
+    if (!gateway || !sessionId) {
+      return
+    }
+    try {
+      const result = await createMobileModelClient(gateway)
+        .setModel(sessionId, model, pendingModelRef.current === model)
+      if (!result.applied) {
+        pendingModelRef.current = model
+        setConnectionMessage(`${result.confirmMessage} Tap it again to confirm.`)
+        return
+      }
+      pendingModelRef.current = null
+      setModelChoice(current => ({ ...current, model }))
+      setConnectionMessage('')
+    } catch (error) {
+      pendingModelRef.current = null
+      setConnectionMessage(error instanceof Error ? error.message : 'Unable to switch model')
+    }
+  }
+
+  async function selectEffort(level: string) {
+    if (!gateway) {
+      return
+    }
+    try {
+      await createMobileModelClient(gateway).setEffort(level)
+      setModelChoice(current => ({ ...current, effort: level }))
+      setConnectionMessage('')
+    } catch (error) {
+      setConnectionMessage(error instanceof Error ? error.message : 'Unable to change the thinking level')
+    }
+  }
+
+  const composerSelection: MobileComposerSelection = {
+    effortLabel: reasoningEffortLabel(modelChoice.effort || DEFAULT_REASONING_EFFORT),
+    effortOptions: REASONING_EFFORTS.map(level => ({ id: level, label: reasoningEffortLabel(level) })),
+    modelLabel: modelChoice.model ? displayModelName(modelChoice.model) : 'Model',
+    modelOptions: modelChoice.models.map(option => ({
+      id: option.id,
+      label: option.label === option.id ? displayModelName(option.id) : option.label
+    })),
+    onSelectEffort: level => void selectEffort(level),
+    onSelectModel: model => void selectModel(model)
+  }
+
   // Title of the session shown in the inset; null while no session is open. The sidebar's chain, so
   // a session the backend never auto-titled reads as its preview in both places. A brand-new session
   // has no row yet — the backend persists one only on the first turn — and has to keep a label
@@ -781,6 +869,7 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
             onSubmit={submitMessage}
             onVoiceInput={() => void toggleVoiceInput()}
             pendingFiles={pendingFiles}
+            selection={composerSelection}
             sessionId={sessionId}
             toolActivities={toolActivities}
             voiceState={voiceState}
