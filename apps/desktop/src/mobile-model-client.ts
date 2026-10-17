@@ -5,10 +5,16 @@ export interface MobileModelOption {
   label: string
 }
 
+/** One provider's slice of the catalog. The menu groups on this: a flat list loses which provider owns a model. */
+export interface MobileModelProvider {
+  models: MobileModelOption[]
+  slug: string
+}
+
 export interface MobileModelOptions {
   model: string
-  models: MobileModelOption[]
   provider: string
+  providers: MobileModelProvider[]
 }
 
 /**
@@ -49,26 +55,68 @@ function readModelEntry(entry: unknown): MobileModelOption | null {
   return null
 }
 
+export interface MobileSessionModelInfo {
+  effort: string
+  model: string
+  provider: string
+}
+
+/**
+ * The model a live session is actually running, from a `session.resume` reply's `info` — the backend's
+ * `_session_info`, which reports the session override and any pending switch.
+ *
+ * This is a different tier from `model.options.model`, which reports the CONFIGURED model. Trusting the
+ * catalog is how a cold start put the old model back in the pill while the agent had already been
+ * switched and was answering as the new one.
+ */
+export function readSessionModelInfo(info: unknown): MobileSessionModelInfo | null {
+  if (!info || typeof info !== 'object') {
+    return null
+  }
+  const record = info as { model?: unknown, provider?: unknown, reasoning_effort?: unknown }
+  const model = String(record.model ?? '').trim()
+  const provider = String(record.provider ?? '').trim()
+  const effort = String(record.reasoning_effort ?? '').trim()
+  return model || provider || effort ? { effort, model, provider } : null
+}
+
 export function createMobileModelClient(gateway: MobileGatewayRequest) {
   return {
-    /** The catalog plus the gateway's own current selection, which is what the pill shows. */
-    async options(): Promise<MobileModelOptions> {
-      const payload = await gateway.request('model.options', { explicit_only: true }) as ModelOptionsPayload
-      const providers = Array.isArray(payload?.providers) ? payload.providers as ProviderPayload[] : []
-      const models: MobileModelOption[] = []
-      for (const provider of providers) {
-        const entries = Array.isArray(provider?.models) ? provider.models : []
+    /**
+     * The catalog grouped by provider, plus the gateway's own current selection.
+     *
+     * `sessionId` is load-bearing: the gateway layers a LIVE session's own provider/model over the
+     * config, and prepends that model to its provider's row. Asked without it, the catalog answers for
+     * the profile default instead — so a session pinned to another model has no row to tick, and a model
+     * dropped from the provider's live listing looks absent from the catalog entirely.
+     */
+    async options(sessionId?: string): Promise<MobileModelOptions> {
+      const payload = await gateway.request('model.options', {
+        explicit_only: true,
+        ...(sessionId ? { session_id: sessionId } : {})
+      }) as ModelOptionsPayload
+      const rows = Array.isArray(payload?.providers) ? payload.providers as ProviderPayload[] : []
+      const providers: MobileModelProvider[] = []
+      for (const row of rows) {
+        const slug = String(row?.slug ?? row?.name ?? '').trim()
+        const entries = Array.isArray(row?.models) ? row.models : []
+        const models: MobileModelOption[] = []
         for (const entry of entries) {
           const option = readModelEntry(entry)
-          if (option) {
+          if (option && !models.some(existing => existing.id === option.id)) {
             models.push(option)
           }
+        }
+        // A provider with no slug cannot be switched to (the slug is what the switch sends), so it is
+        // dropped rather than shown as an option that would fail.
+        if (slug && models.length > 0) {
+          providers.push({ models, slug })
         }
       }
       return {
         model: String(payload?.model ?? '').trim(),
-        models,
-        provider: String(payload?.provider ?? '').trim()
+        provider: String(payload?.provider ?? '').trim(),
+        providers
       }
     },
 
@@ -86,15 +134,25 @@ export function createMobileModelClient(gateway: MobileGatewayRequest) {
     /**
      * Switch the model of a live session.
      *
-     * The gateway refuses this without a session (`config.set model requires a live session`) and
-     * answers `confirm_required` for an expensive model. Callers pass `confirm` only after the person
-     * has been shown that message and chosen again — never on the strength of a single tap.
+     * **The provider rides along in the value string**, as `/model`'s own `--provider` flag: the target
+     * resolver looks a model up inside one provider's listing, so a bare id answers "Model was not found
+     * in this provider's model listing" for any model that belongs to a different provider.
+     *
+     * The gateway refuses this without a session (`config.set model requires a live session`) and answers
+     * `confirm_required` for an expensive model. Callers pass `confirm` only after the person has been
+     * shown that message and chosen again — never on the strength of a single tap.
      */
-    async setModel(sessionId: string, model: string, confirm = false): Promise<MobileModelSwitchResult> {
+    async setModel(
+      sessionId: string,
+      model: string,
+      provider: string,
+      confirm = false
+    ): Promise<MobileModelSwitchResult> {
+      const target = provider ? `${model} --provider ${provider}` : model
       const reply = await gateway.request('config.set', {
         key: 'model',
         session_id: sessionId,
-        value: model,
+        value: target,
         ...(confirm ? { confirm_expensive_model: true } : {})
       }) as { confirm_message?: unknown, confirm_required?: unknown }
       if (reply?.confirm_required) {

@@ -56,6 +56,8 @@ interface SessionListResponse {
 }
 
 interface SessionResumeResponse {
+  /** `_session_info` for the live session: the model/provider/level actually in force. */
+  info?: unknown
   session_id?: unknown
   session_key?: unknown
 }
@@ -65,6 +67,8 @@ interface SessionMessagesResponse {
 }
 
 export interface MobileResumedSession {
+  /** Raw `info` from the resume reply — parsed by `readSessionModelInfo`, which owns that shape. */
+  info?: unknown
   messages: ChatMessage[]
   runtimeSessionId: string
   storedSessionId: string
@@ -137,6 +141,7 @@ export function createMobileSessionClient(gateway: MobileGatewayRequest, rest?: 
       }
       const messages = await loadMobileSessionHistory(rest, storedSessionId, profile)
       return {
+        info: response.info,
         messages,
         runtimeSessionId: response.session_id,
         storedSessionId: typeof response.session_key === 'string' && response.session_key

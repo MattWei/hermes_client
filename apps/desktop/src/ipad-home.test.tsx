@@ -808,6 +808,63 @@ describe('IpadHome', () => {
     expect(screen.queryByRole('button', { name: 'Open Default chat' })).toBeNull()
   })
 
+  it("returns to the new profile's own last conversation after a profile switch", async () => {
+    window.localStorage.clear()
+    window.localStorage.setItem('hermes.mobile.last-session.default', 'stored-d')
+    window.localStorage.setItem('hermes.mobile.last-session.work', 'stored-w')
+
+    const get = vi.fn(async (path: string) => {
+      if (path === '/api/profiles') {
+        return new Response(JSON.stringify({
+          profiles: [
+            { display_name: '', is_default: true, name: 'default' },
+            { display_name: '', is_default: false, name: 'work' }
+          ]
+        }))
+      }
+      if (path.includes('/messages')) {
+        const id = path.match(/sessions\/([^/]+)\/messages/)?.[1] ?? ''
+        return new Response(JSON.stringify({
+          messages: [{ content: id === 'stored-w' ? 'Work transcript' : 'Default transcript', role: 'assistant', timestamp: 1 }],
+          session_id: id
+        }))
+      }
+      if (path.includes('profile=work')) {
+        return new Response(JSON.stringify({ sessions: [{ id: 'stored-w', preview: 'Work chat', title: 'Work chat' }] }))
+      }
+      return new Response(JSON.stringify({ sessions: [{ id: 'stored-d', preview: 'Default chat', title: 'Default chat' }] }))
+    })
+    // Each profile resumes its own remembered id, so the reply has to follow the request.
+    const request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
+      if (method !== 'session.resume') {
+        return {}
+      }
+      const id = String(params?.session_id ?? '')
+      return { session_id: `runtime-${id}`, session_key: id }
+    })
+
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request }))} createRestClient={vi.fn(() => ({ get, patch: vi.fn(), post: vi.fn(), remove: vi.fn() }))} />)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'http://10.10.10.10:9119' } })
+    fireEvent.change(screen.getByLabelText('LAN session token'), { target: { value: 'lan-token' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I understand this LAN connection uses unencrypted HTTP and WS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Connect LAN gateway' }))
+    await waitFor(() => expect(screen.getByText('Default transcript')).toBeTruthy())
+
+    fireEvent.change(screen.getByLabelText('Profile'), { target: { value: 'work' } })
+
+    // A profile is its own workspace: switching must open THIS profile's last conversation, not leave
+    // the user on an empty list because the one-shot restore had already fired for the old profile.
+    await waitFor(() => expect(screen.getByText('Work transcript')).toBeTruthy())
+    expect(request).toHaveBeenCalledWith('session.resume', expect.objectContaining({
+      profile: 'work',
+      session_id: 'stored-w'
+    }))
+  })
+
   it('labels a session by its preview when the backend never auto-titled it', async () => {
     // Auto-titling only happens after a complete exchange, so most sessions arrive with a preview
     // and no title. Falling straight to "Untitled session" would make the list unreadable.

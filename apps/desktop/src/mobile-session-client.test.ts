@@ -3,6 +3,24 @@ import { describe, expect, it, vi } from 'vitest'
 import { createMobileSessionClient } from './mobile-session-client'
 
 describe('createMobileSessionClient', () => {
+  it('carries the live session info out of a resume', async () => {
+    const request = vi.fn(async () => ({
+      info: { model: 'claude-sonnet-4-8', provider: 'anthropic', reasoning_effort: 'high' },
+      session_id: 'runtime-44',
+      session_key: 'stored-44'
+    }))
+    const get = vi.fn(async () => new Response(JSON.stringify({ messages: [] })))
+
+    const resumed = await createMobileSessionClient({ request } as never, { get } as never).resume('stored-44')
+
+    // The backend's `_session_info` — the model in force, not the profile default the catalog reports.
+    expect(resumed.info).toEqual({
+      model: 'claude-sonnet-4-8',
+      provider: 'anthropic',
+      reasoning_effort: 'high'
+    })
+  })
+
   it('creates a session with mobile-safe defaults and preserves runtime and stored identities', async () => {
     const request = vi.fn(async () => ({
       session_id: 'runtime-42',

@@ -3,7 +3,8 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { createMobileApprovalClient, type MobileApprovalRequest } from './mobile-approval-client'
 import { createMobileAttachmentClient, type MobileFileAttachment } from './mobile-attachment-client'
 import { createMobileDictationClient } from './mobile-dictation-client'
-import { createMobileModelClient, type MobileModelOption } from './mobile-model-client'
+import { createMobileModelClient, readSessionModelInfo, type MobileModelProvider } from './mobile-model-client'
+import { gatewayHostLabel, readGatewayStatus, type MobileGatewayStatus } from './mobile-gateway-status'
 import { mobileCredentialStore } from './capacitor-mobile-credential-store'
 import { connectMobileGateway } from './mobile-gateway-client'
 import { assistantTextPart, appendAssistantTextPart, mergeFinalAssistantText, textPart, type ChatMessage } from './lib/chat-messages'
@@ -66,6 +67,7 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
   const [lanToken, setLanToken] = useState('')
   const [lanRiskConfirmed, setLanRiskConfirmed] = useState(false)
   const [connectionMessage, setConnectionMessage] = useState('')
+  const [gatewayStatus, setGatewayStatus] = useState<MobileGatewayStatus>({ label: '', tone: 'ok' })
   const [gateway, setGateway] = useState<(MobileGatewayRequest & MobilePromptGateway & { close(): void; onState?: (handler: (state: string) => void) => () => void }) | null>(null)
   const [rest, setRest] = useState<MobileGatewayRestClient | null>(null)
   const [sessions, setSessions] = useState<MobileSessionListItem[]>([])
@@ -83,8 +85,8 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
   /** The draft as it stood when recording started, so a live partial replaces its own text and not the person's. */
   const voiceBaseRef = useRef('')
   const speechRecognizer = useRef(createMobileSpeechRecognizer())
-  const [modelChoice, setModelChoice] = useState<{ effort: string, model: string, models: MobileModelOption[], provider: string }>({
-    effort: '', model: '', models: [], provider: ''
+  const [modelChoice, setModelChoice] = useState<{ effort: string, model: string, provider: string, providers: MobileModelProvider[] }>({
+    effort: '', model: '', provider: '', providers: []
   })
   /** The model whose first tap the gateway refused for cost — a second tap on it is the confirmation. */
   const pendingModelRef = useRef<string | null>(null)
@@ -285,6 +287,12 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
    * fails is not a connection failure, so it must not overwrite the connected status.
    */
   function loadConnectedSurface(connectedGateway: NonNullable<typeof gateway>, restClient: MobileSessionRest, profile?: string) {
+    // Backend health for the sidebar footer. A failed read leaves the footer with what it last knew —
+    // the sessions below it are the better evidence that the connection works.
+    void restClient.get('/api/status')
+      .then(response => response.ok ? response.json() : null)
+      .then(payload => { if (payload) setGatewayStatus(readGatewayStatus(payload)) })
+      .catch(() => {})
     void createMobileProfileClient(restClient).list()
       .then(list => {
         setProfiles(list)
@@ -324,6 +332,14 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
     setActiveStoredSessionId(null)
     setMessages([])
     setView('list')
+    // A profile is its own workspace, so the previous profile's session is not "open" here and the
+    // one-shot restore has to be re-armed — otherwise the new profile lands on an empty list and never
+    // returns to ITS last conversation.
+    activeSessionRef.current = { runtimeSessionId: null, storedSessionId: null }
+    restoreAttempted.current = false
+    // Different profile, different defaults: the pills must not carry the previous profile's pick.
+    pendingModelRef.current = null
+    setModelChoice(current => ({ ...current, effort: '', model: '', provider: '' }))
     if (gateway && rest) {
       loadConnectedSurface(gateway, rest, profile || undefined)
     }
@@ -535,6 +551,18 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
     try {
       const session = await createMobileSessionClient(gateway, rest).resume(storedSessionId, activeProfile || undefined)
       activeSessionRef.current = { runtimeSessionId: session.runtimeSessionId, storedSessionId: session.storedSessionId }
+      // The session's own pick, not the profile's: `model.options` reports the CONFIGURED model, so a
+      // session that was switched to another model would come back showing the old one after a cold
+      // start while the agent was already answering as the new one.
+      const sessionModel = readSessionModelInfo(session.info)
+      if (sessionModel) {
+        setModelChoice(current => ({
+          ...current,
+          effort: sessionModel.effort || current.effort,
+          model: sessionModel.model || current.model,
+          provider: sessionModel.provider || current.provider
+        }))
+      }
       setSessionId(session.runtimeSessionId)
       setActiveStoredSessionId(session.storedSessionId)
       setMessages(session.messages)
@@ -597,6 +625,9 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
       const session = await createMobileSessionClient(gateway).create(activeProfile || undefined)
       setSessionId(session.runtimeSessionId)
       setMessages([])
+      // A new session runs on the profile default: the pills must stop advertising the previous
+      // session's pick, and the catalog fills them back in for this one.
+      setModelChoice(current => ({ ...current, effort: '', model: '', provider: '' }))
       const storedSessionId = session.storedSessionId
       activeSessionRef.current = { runtimeSessionId: session.runtimeSessionId, storedSessionId: storedSessionId ?? null }
       setActiveStoredSessionId(storedSessionId ?? null)
@@ -760,16 +791,16 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
     const client = createMobileModelClient(gateway)
     void (async () => {
       try {
-        const [options, effort] = await Promise.all([client.options(), client.currentEffort()])
+        const [options, effort] = await Promise.all([client.options(sessionId), client.currentEffort()])
         if (cancelled) {
           return
         }
         setModelChoice(current => ({
           // A level already chosen here wins over the profile's: it is the one in force.
           effort: current.effort || effort || DEFAULT_REASONING_EFFORT,
-          model: options.model || current.model,
-          models: options.models.length > 0 ? options.models : current.models,
-          provider: options.provider || current.provider
+          model: current.model || options.model,
+          provider: current.provider || options.provider,
+          providers: options.providers.length > 0 ? options.providers : current.providers
         }))
       } catch {
         // A gateway that will not report its catalog leaves the pills showing what they already had.
@@ -782,20 +813,31 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
    * The first tap on a model the gateway flags as expensive changes nothing: its own message goes to the
    * status line and the same model has to be tapped again. Never confirm on one tap — that is money.
    */
-  async function selectModel(model: string) {
+  async function selectModel(model: string, provider: string) {
     if (!gateway || !sessionId) {
       return
     }
+    // Picking what is already in force is not a switch. Sending it anyway round-trips a validation that
+    // can fail for reasons unrelated to intent — a provider whose live `/v1/models` no longer carries
+    // the id the profile is configured with — turning a no-op tap into an error message.
+    if (model === modelChoice.model && provider === modelChoice.provider) {
+      pendingModelRef.current = null
+      setConnectionMessage('')
+      return
+    }
+    // Keyed by provider too: two providers can list a model of the same name, and confirming one must
+    // not confirm the other.
+    const target = `${provider}/${model}`
     try {
       const result = await createMobileModelClient(gateway)
-        .setModel(sessionId, model, pendingModelRef.current === model)
+        .setModel(sessionId, model, provider, pendingModelRef.current === target)
       if (!result.applied) {
-        pendingModelRef.current = model
+        pendingModelRef.current = target
         setConnectionMessage(`${result.confirmMessage} Tap it again to confirm.`)
         return
       }
       pendingModelRef.current = null
-      setModelChoice(current => ({ ...current, model }))
+      setModelChoice(current => ({ ...current, model, provider }))
       setConnectionMessage('')
     } catch (error) {
       pendingModelRef.current = null
@@ -818,14 +860,27 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
 
   const composerSelection: MobileComposerSelection = {
     effortLabel: reasoningEffortLabel(modelChoice.effort || DEFAULT_REASONING_EFFORT),
-    effortOptions: REASONING_EFFORTS.map(level => ({ id: level, label: reasoningEffortLabel(level) })),
+    effortValue: modelChoice.effort || DEFAULT_REASONING_EFFORT,
+    effortOptions: [{
+      id: '',
+      items: REASONING_EFFORTS.map(level => ({ id: level, label: reasoningEffortLabel(level) })),
+      label: ''
+    }],
+    modelGroup: modelChoice.provider,
     modelLabel: modelChoice.model ? displayModelName(modelChoice.model) : 'Model',
-    modelOptions: modelChoice.models.map(option => ({
-      id: option.id,
-      label: option.label === option.id ? displayModelName(option.id) : option.label
+    // One group per provider. The grouping is the data: the switch resolves a model against one
+    // provider's listing, so the pick has to carry the slug it came from.
+    modelOptions: modelChoice.providers.map(provider => ({
+      id: provider.slug,
+      items: provider.models.map(option => ({
+        id: option.id,
+        label: option.label === option.id ? displayModelName(option.id) : option.label
+      })),
+      label: provider.slug
     })),
+    modelValue: modelChoice.model,
     onSelectEffort: level => void selectEffort(level),
-    onSelectModel: model => void selectModel(model)
+    onSelectModel: (model, provider) => void selectModel(model, provider)
   }
 
   // Title of the session shown in the inset; null while no session is open. The sidebar's chain, so
@@ -843,6 +898,8 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
       <main className="h-dvh overflow-hidden bg-[var(--ui-bg-primary)] text-[color:var(--ui-text-primary)]">
         <IpadShell
         activeProfile={activeProfile}
+        gatewayHost={gatewayHostLabel(backendAddress)}
+        gatewayStatus={gatewayStatus}
         onSelectProfile={selectProfile}
         profiles={profiles}
           activeSessionId={activeStoredSessionId}

@@ -15,26 +15,70 @@ export interface MobileComposerOption {
 }
 
 /**
+ * A list of options under one heading. The model menu uses a group per provider — the provider is what
+ * the switch sends, so the grouping is the data, not decoration. A group with an empty label is a flat
+ * list and renders without a heading.
+ */
+export interface MobileComposerOptionGroup {
+  id: string
+  items: MobileComposerOption[]
+  label: string
+}
+
+/**
  * The two selectors that sit above the input: which model answers, and how hard it thinks. Both are
  * session-scoped on the gateway — a pick here must not rewrite the profile's default.
  */
 export interface MobileComposerSelection {
   effortLabel: string
-  effortOptions: MobileComposerOption[]
+  effortOptions: MobileComposerOptionGroup[]
+  /** The level in force, so the list can open on it rather than at the top. */
+  effortValue: string
+  /** The provider the live model belongs to — the group id in `modelOptions`. */
+  modelGroup: string
   modelLabel: string
-  modelOptions: MobileComposerOption[]
+  modelOptions: MobileComposerOptionGroup[]
+  modelValue: string
   onSelectEffort: (level: string) => void
-  onSelectModel: (model: string) => void
+  /** The group id is the provider: a model id alone does not identify which provider's listing to use. */
+  onSelectModel: (model: string, provider: string) => void
 }
 
 /** One selector: a quiet label with a chevron, opening a list upward from the composer. */
-function ComposerSelect({ ariaLabel, label, onSelect, options }: {
+function ComposerSelect({ ariaLabel, groups, label, onSelect, selectedGroupId, selectedId }: {
   ariaLabel: string
+  groups: MobileComposerOptionGroup[]
   label: string
-  onSelect: (id: string) => void
-  options: MobileComposerOption[]
+  onSelect: (id: string, groupId: string) => void
+  selectedGroupId: string
+  selectedId: string
 }) {
   const [open, setOpen] = useState(false)
+  const listRef = useRef<HTMLDivElement | null>(null)
+
+  // Open the list on the pick that is actually in force. An open menu that starts at the top makes
+  // someone hunt for the row the pill is already advertising.
+  useEffect(() => {
+    const list = listRef.current
+    if (!open || !list) {
+      return
+    }
+    const current = list.querySelector<HTMLElement>('[aria-checked="true"]')
+    if (!current) {
+      return
+    }
+    // Move the list itself, never `scrollIntoView`: that walks every scrollable ancestor and would
+    // drag the transcript along with it.
+    const listRect = list.getBoundingClientRect()
+    const currentRect = current.getBoundingClientRect()
+    const visibleTop = listRect.top + list.clientTop
+    const visibleBottom = visibleTop + list.clientHeight
+    if (currentRect.top < visibleTop) {
+      list.scrollTop -= visibleTop - currentRect.top
+    } else if (currentRect.bottom > visibleBottom) {
+      list.scrollTop += currentRect.bottom - visibleBottom
+    }
+  }, [open])
 
   return <div className="relative">
     <button
@@ -49,17 +93,28 @@ function ComposerSelect({ ariaLabel, label, onSelect, options }: {
     </button>
     {open && <div
       className="absolute bottom-full left-0 z-20 mb-1 max-h-64 w-60 overflow-y-auto rounded-xl border border-(--ui-stroke-tertiary) bg-background p-1"
+      ref={listRef}
       role="menu"
     >
-      {options.map(option => <button
-        className="block w-full truncate rounded-lg px-2 py-1.5 text-left text-sm"
-        key={option.id}
-        onClick={() => { onSelect(option.id); setOpen(false) }}
-        role="menuitem"
-        type="button"
-      >
-        {option.label}
-      </button>)}
+      {groups.map(group => <div key={group.id}>
+        {group.label && <p className="px-2 pb-0.5 pt-1 text-[0.65rem] uppercase tracking-wider text-[color:var(--ui-text-tertiary)]">
+          {group.label}
+        </p>}
+        {group.items.map(option => {
+          const checked = option.id === selectedId && group.id === selectedGroupId
+          return <button
+            aria-checked={checked}
+            className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm ${checked ? 'text-[color:var(--ui-text-primary)]' : ''}`}
+            key={option.id}
+            onClick={() => { onSelect(option.id, group.id); setOpen(false) }}
+            role="menuitemradio"
+            type="button"
+          >
+            <span className="flex-1 truncate">{option.label}</span>
+            {checked && <Codicon name="check" size="0.8rem" />}
+          </button>
+        })}
+      </div>)}
     </div>}
   </div>
 }
@@ -118,15 +173,19 @@ export function IpadComposer({ draft, onDraftChange, onFilesChange, onSubmit, on
       <div className="flex items-center gap-4 px-1 pb-1.5">
         <ComposerSelect
           ariaLabel="Model"
+          groups={selection.modelOptions}
           label={selection.modelLabel}
           onSelect={selection.onSelectModel}
-          options={selection.modelOptions}
+          selectedGroupId={selection.modelGroup}
+          selectedId={selection.modelValue}
         />
         <ComposerSelect
           ariaLabel="Thinking level"
+          groups={selection.effortOptions}
           label={selection.effortLabel}
-          onSelect={selection.onSelectEffort}
-          options={selection.effortOptions}
+          onSelect={(level) => selection.onSelectEffort(level)}
+          selectedGroupId=""
+          selectedId={selection.effortValue}
         />
       </div>
       <div className="flex items-end gap-2 rounded-2xl border border-(--ui-stroke-tertiary) bg-background px-2.5 py-1">

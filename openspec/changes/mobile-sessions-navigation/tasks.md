@@ -319,8 +319,59 @@
       gateway's own `confirm_message`; the same model tapped again sends `confirm_expensive_model`.
       A test asserts that parameter is absent from a first pick — a single tap that quietly spends
       money is this control's worst failure mode.
+- [x] P3a **The provider travels with the model** (reported on hardware: `Model was not found in this
+      provider's model listing`). The first cut flattened the catalog and sent a bare id, but the
+      resolver searches one provider's listing — the backend's own guard comment says a bare pick
+      resolves against the *live* provider. The switch now sends `<model> --provider <slug>`, and the
+      menu groups by provider because the group is the other half of the pick. The confirmation is
+      keyed on `provider/model`, so confirming one provider's model cannot confirm another's.
 - [ ] P4 **Verified on hardware**: the pills show the live model and level, and each list changes it.
       Contract and reasoning: `evidence/composer-selectors.md`.
+- [x] P9 **The sidebar footer is a status line, not a log** (user's ask, with the desktop's own bar as
+      the model). It now carries the profile picker (taller, as asked) plus `globe` + gateway host +
+      backend health, read from `GET /api/status` `gateway_platforms` — the same rollup behind the
+      desktop's "Backend weixin down". `connectionMessage` moved under the session title rather than being
+      deleted, so errors stay visible. `evidence/sidebar-status.md`.
+- [x] P10 **The session list is draggable, capped at 90% of the screen** (user's ask). A grip on the
+      right edge drags the rail; the width is written to the primitives' `--sidebar-width` so the panel,
+      its gap and the inset stay in agreement, and transitions are suppressed mid-drag (the primitive
+      animates width, which lags a finger). `clampSidebarWidth` caps at 90% of the **viewport**, and that
+      ratio outranks the 180px comfort minimum — "never fills the screen" has to hold unconditionally.
+      Not persisted across launches (nothing asked for; a stored pixel width is what breaks on rotation).
+      `evidence/sidebar-resize.md`.
+      **Confirmed on hardware** after the `min-w-0` fix: the rail widens and the conversation narrows
+      with it (user: "已经正常缩小").
+- [x] P9a **The footer reports the connected backend only** (settled with the user after two wrong cuts:
+      platform-as-headline, then platform-as-muted-detail). `gateway_platforms` is no longer parsed at
+      all — `Backend ready` / `Backend stopped` / `<state>`, or nothing when the payload does not say.
+      A failed messaging adapter is a different audience's problem, and the connection is already proven
+      by the surface being on screen.
+- [x] P8 **A profile switch re-arms the last-session restore.** `selectProfile` cleared the session
+      state but left `restoreAttempted` (a one-shot) and `activeSessionRef` in place, so the new profile
+      never asked for its own session and landed on an empty list. Switching profile is a workspace
+      switch: clear the session state, empty the ref, re-arm the restore, and clear the model pills —
+      a profile has its own default. Covered by a test that switches to a second profile and asserts the
+      transcript it resumes is that profile's.
+- [x] P7 The catalog is asked **on behalf of the session** (`model.options { session_id }`). Asked
+      without it the gateway answers for the profile default, so a session pinned to another model had
+      no row to tick and its row looked like it never contained the model. Verified against the live
+      backend both ways: with the session override the row regains `deepseek-v4-flash`. This matters
+      because existing sessions keep the model they were created with, and one of them is pinned to an
+      id DeepSeek no longer lists.
+- [x] P6 **The pill follows the session, not the profile** (reported: switch model → kill the app →
+      reopen → the pill shows the OLD model while the agent answers as the new one). `model.options`
+      reports the *configured* model; the session override lives in `session.resume`'s `info`
+      (`_session_info`: `model` / `provider` / `reasoning_effort`). `resume()` was dropping it. It now
+      carries `info` out, `readSessionModelInfo` parses it, and the catalog effect reads
+      `current.model || options.model` so it can never overwrite a session's own pick. Same path as the
+      desktop (`SessionResumeResponse.info` → `sessionState.model`). A new session clears the pills,
+      since it runs on the profile default.
+- [x] P5 The list **opens on the pick in force**, marked with a check (`menuitemradio` +
+      `aria-checked`, so the mark is real rather than a style). It scrolls itself to that row instead of
+      calling `scrollIntoView`, which walks every scrollable ancestor and would drag the transcript —
+      the desktop's `trigger-popover` says so in as many words, so the mobile panel does the same rect
+      arithmetic on its own `scrollTop`. Keyed on `provider/model`: two providers can list the same
+      model name.
 
 ## Verification
 
