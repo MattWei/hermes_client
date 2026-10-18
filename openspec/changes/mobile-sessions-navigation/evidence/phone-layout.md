@@ -62,6 +62,28 @@ So treat "pan to read" as a **WebView viewport-state symptom** before touching C
 the fix is a fresh page load, not a layout change. Two of the three builds spent on this were chasing a
 layout bug that measurement had already ruled out.
 
+## The keyboard moved the page instead of shrinking it
+
+With a short transcript, raising the keyboard on the device left the composer visible but pushed the
+session header and the two messages off the top of the screen — the page had been scrolled to reach the
+focused input. `svh`/`dvh` cannot prevent this: iOS shrinks the **visual** viewport (844 → 464) while the
+layout viewport keeps its full height, so a shell sized in `svh` stays 844 tall and the system scrolls
+whatever it must to reveal the composer.
+
+The shell height now comes from `visualViewport.height`, written to `--app-height` on `resize`, `scroll`
+and `orientationchange` (`ipad-main.tsx`), and both `<main>` elements size from
+`h-[var(--app-height,100dvh)]`. With the keyboard open, measured:
+
+```
+inner 844  vv 464  off 0  scroll 0
+app-h 464  shell 464px
+header 0-…  composer 341-464  active=TEXTAREA
+```
+
+Shell height equals the visual viewport, the document does not scroll at all, and the composer sits inside
+the visible band beneath the keyboard — so the transcript gives up the space instead of the whole page
+moving.
+
 ## Note on the model pill
 
 An earlier run showed **Deepseek V4 Pro** on a session whose transcript said the live model was

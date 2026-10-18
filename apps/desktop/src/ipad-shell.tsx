@@ -224,7 +224,7 @@ export function IpadShell({
       // ordinary layout. `!relative` beats the primitive's own `fixed` regardless of stylesheet order;
       // the gap spacer the primitive uses to reserve room for a fixed rail is hidden because the rail
       // now occupies that space itself.
-      className={`${resizing ? '[&_*]:select-none [&_*]:transition-none! ' : ''}h-svh min-h-0 [-webkit-tap-highlight-color:transparent] [&>[data-slot=sidebar]]:shrink-0 [&_[data-slot=sidebar-gap]]:hidden`}
+      className={`${resizing ? '[&_*]:select-none [&_*]:transition-none! ' : ''}h-full min-h-0 [-webkit-tap-highlight-color:transparent] [&>[data-slot=sidebar]]:shrink-0 [&_[data-slot=sidebar-gap]]:hidden`}
       style={sidebarWidth == null ? undefined : { '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}
     >
       <CloseDrawerAfterPick />

@@ -895,7 +895,7 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
   // Connected: the desktop-shaped layout — collapsible session sidebar plus the open session.
   if (gateway) {
     return (
-      <main className="h-dvh overflow-hidden bg-[var(--ui-bg-primary)] text-[color:var(--ui-text-primary)]">
+      <main className="h-[var(--app-height,100dvh)] overflow-hidden bg-[var(--ui-bg-primary)] text-[color:var(--ui-text-primary)]">
         <IpadShell
         activeProfile={activeProfile}
         gatewayHost={gatewayHostLabel(backendAddress)}
@@ -939,7 +939,7 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
   }
 
   return (
-    <main className="min-h-dvh overflow-x-hidden bg-[var(--ui-bg-primary)] px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))] text-[color:var(--ui-text-primary)]">
+    <main className="min-h-[var(--app-height,100dvh)] overflow-x-hidden bg-[var(--ui-bg-primary)] px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))] text-[color:var(--ui-text-primary)]">
       <div className="mx-auto flex min-h-[calc(100dvh-3rem)] max-w-3xl flex-col justify-center">
         {emulatorLoopbackEnabled && <p className="mt-6 w-fit rounded-lg border border-amber-500/50 px-3 py-2 font-mono text-xs text-amber-700 dark:text-amber-300">
           EMULATOR-ONLY LOOPBACK TUNNEL · Not valid for physical LAN devices.
