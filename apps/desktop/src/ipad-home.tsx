@@ -895,7 +895,7 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
   // Connected: the desktop-shaped layout — collapsible session sidebar plus the open session.
   if (gateway) {
     return (
-      <main className="h-[var(--app-height,100dvh)] overflow-hidden bg-[var(--ui-bg-primary)] text-[color:var(--ui-text-primary)]">
+      <main className="h-[var(--app-height,100dvh)] overflow-hidden bg-[var(--ui-bg-primary)] text-[color:var(--ui-text-primary)]" data-app-shell>
         <IpadShell
         activeProfile={activeProfile}
         gatewayHost={gatewayHostLabel(backendAddress)}

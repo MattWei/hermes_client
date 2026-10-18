@@ -85,14 +85,25 @@ the visible band beneath the keyboard — so the transcript gives up the space i
 moving.
 
 One more layer on top of that: iOS scrolls the page to reveal the focused field **before** the shell has
-shrunk, and that scroll is not undone by the resize. The symptom is a composer stranded at the very top of
-the screen with a band of empty space above the keyboard — the page showing the *bottom* of a shell that is
-only 464 tall. `apply()` now resets the scroll after sizing, guarded so a surface that genuinely scrolls
-(the connection form under a raised keyboard) keeps its position:
+shrunk, and that scroll survives the resize. The symptom is a composer stranded at the very top of the
+screen with a band of empty space above the keyboard — the page showing the *bottom* of a shell that is
+only 464 tall.
+
+`apply()` resets the scroll after sizing, but **only on the connected shell**:
 
 ```ts
-if (document.documentElement.scrollHeight <= window.innerHeight + 1) window.scrollTo(0, 0)
+if (!document.querySelector('[data-app-shell]')) return
+window.scrollTo(0, 0)
+window.setTimeout(() => window.scrollTo(0, 0), 120)   // iOS scrolls again as the keyboard settles
 ```
+
+The first attempt guarded on `scrollHeight <= innerHeight + 1` ("only reset a page that cannot scroll") and
+the bug came straight back: with the keyboard up `innerHeight` shrinks to 464, so `scrollHeight` (844) is
+always greater and the reset was skipped every time. A geometry guard cannot distinguish "cannot scroll"
+from "the viewport just shrank" — the *surface* can. The connected shell is a fixed-height pane that never
+needs document scrolling; the connection form is not.
+
+Verified with the keyboard open: `in 844 vv 464 off 0 scroll 0 sh 464 form 341-464`.
 
 ## Note on the model pill
 

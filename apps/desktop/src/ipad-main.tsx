@@ -22,12 +22,17 @@ function useVisualViewportHeight() {
     const root = document.documentElement
     const apply = () => {
       root.style.setProperty('--app-height', `${Math.round(viewport?.height ?? window.innerHeight)}px`)
-      // iOS scrolls the page to reveal a focused field *before* the shell has shrunk. Sizing the shell to
-      // the visual viewport is what actually reveals the composer, so that scroll is leftover — and it is
-      // what pushes the header off the top and leaves the composer stranded at the top of the screen.
-      // Guarded: a surface that genuinely needs to scroll (the connection form under a raised keyboard)
-      // keeps its scroll position.
-      if (document.documentElement.scrollHeight <= window.innerHeight + 1) window.scrollTo(0, 0)
+      // iOS scrolls the page to reveal a focused field *before* the shell has shrunk, and that scroll
+      // survives the resize — leaving the composer stranded at the top with the rest of the page blank.
+      // Only the connected shell (a fixed-height surface that never needs document scrolling) is reset;
+      // the connection form keeps its own scroll position. The second pass covers iOS scrolling *after*
+      // the keyboard finishes animating, when no further event reaches us.
+      const pinToTop = () => {
+        if (!document.querySelector('[data-app-shell]')) return
+        window.scrollTo(0, 0)
+        window.setTimeout(() => window.scrollTo(0, 0), 120)
+      }
+      pinToTop()
     }
     apply()
     viewport?.addEventListener('resize', apply)
