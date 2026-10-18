@@ -84,6 +84,16 @@ Shell height equals the visual viewport, the document does not scroll at all, an
 the visible band beneath the keyboard — so the transcript gives up the space instead of the whole page
 moving.
 
+One more layer on top of that: iOS scrolls the page to reveal the focused field **before** the shell has
+shrunk, and that scroll is not undone by the resize. The symptom is a composer stranded at the very top of
+the screen with a band of empty space above the keyboard — the page showing the *bottom* of a shell that is
+only 464 tall. `apply()` now resets the scroll after sizing, guarded so a surface that genuinely scrolls
+(the connection form under a raised keyboard) keeps its position:
+
+```ts
+if (document.documentElement.scrollHeight <= window.innerHeight + 1) window.scrollTo(0, 0)
+```
+
 ## Note on the model pill
 
 An earlier run showed **Deepseek V4 Pro** on a session whose transcript said the live model was
