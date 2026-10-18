@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { IpadComposer, IpadSessionDetail, type MobileComposerSelection } from './ipad-session-detail'
+import type { ChatMessage } from './lib/chat-messages'
 
 function selection(overrides: Partial<MobileComposerSelection> = {}): MobileComposerSelection {
   return {
@@ -125,11 +126,11 @@ describe('composer selectors', () => {
 })
 
 describe('opening a session', () => {
-  function renderDetail(sessionId: string) {
-    return render(<IpadSessionDetail
+  function detail(lastMessage: ChatMessage, sessionId = 'session-a') {
+    return <IpadSessionDetail
       approval={null}
       draft=""
-      messages={[{ id: 'm1', parts: [{ text: 'first', type: 'text' }], role: 'assistant' }]}
+      messages={[lastMessage]}
       onDraftChange={vi.fn()}
       onFilesChange={vi.fn()}
       onRespondToApproval={vi.fn()}
@@ -140,7 +141,14 @@ describe('opening a session', () => {
       sessionId={sessionId}
       toolActivities={[]}
       voiceState="idle"
-    />)
+    />
+  }
+
+  const first: ChatMessage = { id: 'm1', parts: [{ text: 'first', type: 'text' }], role: 'assistant' }
+  const second: ChatMessage = { id: 'm2', parts: [{ text: 'second', type: 'text' }], role: 'user' }
+
+  function renderDetail(sessionId: string) {
+    return render(detail(first, sessionId))
   }
 
   it('opens at the end of the conversation, not at its first message', () => {
@@ -149,7 +157,31 @@ describe('opening a session', () => {
     Object.defineProperty(conversation, 'scrollHeight', { configurable: true, value: 900 })
 
     // Switching session arms the tail again; this is what a resumed conversation looks like.
-    rerender(<IpadSessionDetail
+    rerender(detail(first, 'session-b'))
+
+    expect(conversation.scrollTop).toBe(900)
+  })
+
+  it('follows the turn again once a message is sent, even from the middle of the history', () => {
+    const { rerender } = renderDetail('session-a')
+    const conversation = screen.getByLabelText('Conversation')
+    Object.defineProperty(conversation, 'scrollHeight', { configurable: true, value: 900 })
+    Object.defineProperty(conversation, 'clientHeight', { configurable: true, value: 200 })
+
+    // Reading history: far from the bottom.
+    conversation.scrollTop = 0
+    fireEvent.scroll(conversation)
+    rerender(detail(first))
+    expect(conversation.scrollTop).toBe(0)
+
+    // Sending is a request to watch the answer, so the tail is re-armed.
+    rerender(detail(second))
+
+    expect(conversation.scrollTop).toBe(900)
+  })
+
+  it('keeps a turn\'s tool activity inside the transcript', () => {
+    render(<IpadSessionDetail
       approval={null}
       draft=""
       messages={[{ id: 'm1', parts: [{ text: 'first', type: 'text' }], role: 'assistant' }]}
@@ -160,11 +192,13 @@ describe('opening a session', () => {
       onVoiceInput={vi.fn()}
       pendingFiles={[]}
       selection={selection()}
-      sessionId="session-b"
-      toolActivities={[]}
+      sessionId="session-a"
+      toolActivities={[{ id: 't1', name: 'terminal', status: 'complete' }]}
       voiceState="idle"
     />)
 
-    expect(conversation.scrollTop).toBe(900)
+    const conversation = screen.getByLabelText('Conversation')
+    // Above the transcript it pushed the conversation down and read as history from the session's start.
+    expect(conversation.contains(screen.getByLabelText('Tool activity'))).toBe(true)
   })
 })

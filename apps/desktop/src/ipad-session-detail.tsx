@@ -168,6 +168,11 @@ export function IpadSessionDetail({
   // Follow the tail by default; a person who scrolled up is reading history and must not be yanked back.
   const followTail = useRef(true)
   const openSession = useRef<string | null>(null)
+  const lastSeenMessage = useRef<string | null>(null)
+
+  const lastMessage = messages[messages.length - 1]
+  const lastMessageId = lastMessage?.id ?? null
+  const lastMessageRole = lastMessage?.role ?? null
 
   /**
    * A resumed conversation opens where it ended, not at its first message.
@@ -183,8 +188,14 @@ export function IpadSessionDetail({
       openSession.current = sessionId
       followTail.current = true
     }
+    // Sending is a request to watch the answer, so it re-arms the tail even if the person had scrolled up
+    // to read history. Keyed on the message id so one send re-arms once — scrolling up mid-turn sticks.
+    if (lastMessageId && lastMessageId !== lastSeenMessage.current) {
+      lastSeenMessage.current = lastMessageId
+      if (lastMessageRole === 'user') followTail.current = true
+    }
     if (followTail.current) conversation.scrollTop = conversation.scrollHeight
-  }, [messages.length, sessionId])
+  }, [lastMessageId, lastMessageRole, messages.length, sessionId, toolActivities.length])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -198,12 +209,7 @@ export function IpadSessionDetail({
         </div>
       </section>}
 
-      {toolActivities.length > 0 && <section aria-label="Tool activity" className="flex shrink-0 flex-col gap-2 py-4">
-        <p className="font-mono text-xs tracking-[0.14em] text-[color:var(--ui-text-tertiary)]">TOOL ACTIVITY</p>
-        {toolActivities.map(activity => <p className="rounded-xl border border-(--ui-stroke-tertiary) px-3 py-2 text-sm" key={activity.id}>{activity.name} · {activity.status}</p>)}
-      </section>}
-
-      {messages.length > 0 && <section
+      {(messages.length > 0 || toolActivities.length > 0) && <section
         aria-label="Conversation"
         className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto py-6 [&_pre]:overflow-x-auto [&_table]:block [&_table]:w-full [&_table]:overflow-x-auto"
         onScroll={event => {
@@ -220,6 +226,14 @@ export function IpadSessionDetail({
         >
           <MarkdownTextContent isRunning={Boolean(message.pending)} text={chatMessageText(message)} />
         </article>)}
+
+        {/* Inside the transcript, after the messages: a turn's tool calls belong where they happened, and
+            as a sibling of the scroll container they pushed the conversation down and read as if they were
+            history from the top of the session. */}
+        {toolActivities.length > 0 && <section aria-label="Tool activity" className="flex shrink-0 flex-col gap-2 pt-2">
+          <p className="font-mono text-xs tracking-[0.14em] text-[color:var(--ui-text-tertiary)]">TOOL ACTIVITY</p>
+          {toolActivities.map(activity => <p className="rounded-xl border border-(--ui-stroke-tertiary) px-3 py-2 text-sm" key={activity.id}>{activity.name} · {activity.status}</p>)}
+        </section>}
       </section>}
 
       <IpadComposer

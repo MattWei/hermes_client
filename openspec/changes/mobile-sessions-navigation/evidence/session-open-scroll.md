@@ -25,6 +25,28 @@ Three details that are not incidental:
   the bottom counts as following. Someone who scrolled up to read history is not yanked back when a turn
   completes.
 
+## A turn in progress follows itself
+
+Sending is a request to watch the answer. A person who had scrolled up to read history was left where they
+were: the re-armed tail never happened, so the reply landed below the fold.
+
+`followTail` is re-armed when a **new** message arrives whose role is `user` — keyed on the message id, so
+one send re-arms once and scrolling up *during* the turn still sticks:
+
+```tsx
+if (lastMessageId && lastMessageId !== lastSeenMessage.current) {
+  lastSeenMessage.current = lastMessageId
+  if (lastMessageRole === 'user') followTail.current = true
+}
+```
+
+Tool activity moved **inside** the transcript, after the messages. As a sibling above the scroll container it
+pushed the conversation down and rendered at the top of the screen — a running turn looked like the session's
+history rather than its latest step. Inside the container it sits where it happened and scrolls with it, and
+`toolActivities.length` is a dependency of the follow effect so each completed step keeps the view pinned.
+
+Verified: 21 files / 182 tests, `tsc` clean, built and installed on the iPhone 13 Pro.
+
 ## Verification
 
 `src/ipad-session-detail.test.tsx` renders the detail view, stubs `scrollHeight`, switches the session id
