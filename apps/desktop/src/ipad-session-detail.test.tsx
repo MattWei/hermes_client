@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
-import { IpadComposer, type MobileComposerSelection } from './ipad-session-detail'
+import { IpadComposer, IpadSessionDetail, type MobileComposerSelection } from './ipad-session-detail'
 
 function selection(overrides: Partial<MobileComposerSelection> = {}): MobileComposerSelection {
   return {
@@ -121,5 +121,50 @@ describe('composer selectors', () => {
 
     expect(current.onSelectEffort).toHaveBeenCalledWith('high')
     expect(screen.queryByRole('menu')).toBeNull()
+  })
+})
+
+describe('opening a session', () => {
+  function renderDetail(sessionId: string) {
+    return render(<IpadSessionDetail
+      approval={null}
+      draft=""
+      messages={[{ id: 'm1', parts: [{ text: 'first', type: 'text' }], role: 'assistant' }]}
+      onDraftChange={vi.fn()}
+      onFilesChange={vi.fn()}
+      onRespondToApproval={vi.fn()}
+      onSubmit={vi.fn()}
+      onVoiceInput={vi.fn()}
+      pendingFiles={[]}
+      selection={selection()}
+      sessionId={sessionId}
+      toolActivities={[]}
+      voiceState="idle"
+    />)
+  }
+
+  it('opens at the end of the conversation, not at its first message', () => {
+    const { rerender } = renderDetail('session-a')
+    const conversation = screen.getByLabelText('Conversation')
+    Object.defineProperty(conversation, 'scrollHeight', { configurable: true, value: 900 })
+
+    // Switching session arms the tail again; this is what a resumed conversation looks like.
+    rerender(<IpadSessionDetail
+      approval={null}
+      draft=""
+      messages={[{ id: 'm1', parts: [{ text: 'first', type: 'text' }], role: 'assistant' }]}
+      onDraftChange={vi.fn()}
+      onFilesChange={vi.fn()}
+      onRespondToApproval={vi.fn()}
+      onSubmit={vi.fn()}
+      onVoiceInput={vi.fn()}
+      pendingFiles={[]}
+      selection={selection()}
+      sessionId="session-b"
+      toolActivities={[]}
+      voiceState="idle"
+    />)
+
+    expect(conversation.scrollTop).toBe(900)
   })
 })

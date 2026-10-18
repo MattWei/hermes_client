@@ -409,6 +409,16 @@
 - [x] R5 Regression: 21 files / 179 tests pass, `tsc --noEmit` clean, clean build installed and verified
       by screenshot (header below the status bar, composer and its pills above the home indicator).
 
+## Phase S — reading a resumed session
+
+- [x] S1 A resumed conversation opens at its **last** message. The transcript's own `scrollTop` is set
+      from `scrollHeight` when the session id changes, and again as its messages arrive — never
+      `scrollIntoView`, which moves every scrollable ancestor. `evidence/session-open-scroll.md`.
+- [x] S2 A person who scrolled up is left alone: `followTail` is derived from the container's own
+      `onScroll` (within 48px of the bottom), so a completed turn does not yank the view back.
+- [x] S3 Regression test: switching session ids expects `scrollTop === scrollHeight` (jsdom has no
+      layout, so this covers the wiring; the visual check is on the device).
+
 ## Verification
 
 - [x] List → session round-trip on the iPad simulator (back transition still unit-test only).

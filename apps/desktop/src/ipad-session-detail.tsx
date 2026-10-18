@@ -164,6 +164,28 @@ interface IpadSessionDetailProps {
 export function IpadSessionDetail({
   approval, draft, messages, onDraftChange, onFilesChange, onRespondToApproval, onSubmit, onVoiceInput, pendingFiles, selection, sessionId, toolActivities, voiceState
 }: IpadSessionDetailProps) {
+  const conversationRef = useRef<HTMLElement>(null)
+  // Follow the tail by default; a person who scrolled up is reading history and must not be yanked back.
+  const followTail = useRef(true)
+  const openSession = useRef<string | null>(null)
+
+  /**
+   * A resumed conversation opens where it ended, not at its first message.
+   *
+   * The scroll is set on the one scrolling element rather than with `scrollIntoView`, which moves every
+   * scrollable ancestor and drags the whole shell around. It runs again as the transcript arrives, since
+   * the session id is known before the messages are.
+   */
+  useEffect(() => {
+    const conversation = conversationRef.current
+    if (!conversation) return
+    if (openSession.current !== sessionId) {
+      openSession.current = sessionId
+      followTail.current = true
+    }
+    if (followTail.current) conversation.scrollTop = conversation.scrollHeight
+  }, [messages.length, sessionId])
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {approval && <section aria-label="Approval request" className="mt-4 shrink-0 rounded-xl border border-amber-500/50 p-3">
@@ -181,7 +203,15 @@ export function IpadSessionDetail({
         {toolActivities.map(activity => <p className="rounded-xl border border-(--ui-stroke-tertiary) px-3 py-2 text-sm" key={activity.id}>{activity.name} · {activity.status}</p>)}
       </section>}
 
-      {messages.length > 0 && <section aria-label="Conversation" className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto py-6 [&_pre]:overflow-x-auto [&_table]:block [&_table]:w-full [&_table]:overflow-x-auto">
+      {messages.length > 0 && <section
+        aria-label="Conversation"
+        className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto py-6 [&_pre]:overflow-x-auto [&_table]:block [&_table]:w-full [&_table]:overflow-x-auto"
+        onScroll={event => {
+          const { clientHeight, scrollHeight, scrollTop } = event.currentTarget
+          followTail.current = scrollHeight - scrollTop - clientHeight < 48
+        }}
+        ref={conversationRef}
+      >
         {messages.map(message => <article
           className={message.role === 'user'
             ? 'max-w-[85%] self-end rounded-2xl bg-[var(--ui-bg-quaternary)] px-3 py-2'
