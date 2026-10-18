@@ -42,13 +42,33 @@ sheet when the press landed inside a `[data-slot=sidebar-menu-item]`. Delegation
 row: it covers a session, "start new session" and "refresh" in one place, and the gesture that changes
 the pane is exactly the gesture that should dismiss the list.
 
-## Still open
+## "The whole page is shifted — I have to pan right and down"
 
-The composer's model pill reads **Deepseek V4 Pro** on a session whose transcript states the live model is
-`deepseek-flash`. That is the shape of the cold-start bug fixed earlier (the pill reading the profile
-default instead of the session's own model), but it was not confirmed here: confirming it needs the
-backend's session record, and the local gateway rejects unauthenticated reads. Verify before treating it
-as a regression.
+Seen on the physical iPhone right after the first install: the login card was cut on its left edge
+("onnection mode", "sername") and the form ran past the right edge, so the page had to be dragged to be
+read at all. It reads exactly like a layout wider than the phone.
+
+It was not. A probe that reports `documentElement.scrollWidth` against `innerWidth` printed
+
+```
+win 390x844 html=390 body=390 scroll=0,0
+```
+
+— the document is precisely the width of the viewport, with no overflowing element to list. Reinstalling
+the same code produced a correct first render, and the symptom has not come back.
+
+So treat "pan to read" as a **WebView viewport-state symptom** before touching CSS: measure
+`html/body.scrollWidth` against `innerWidth` first. If they are equal, no stylesheet can be at fault and
+the fix is a fresh page load, not a layout change. Two of the three builds spent on this were chasing a
+layout bug that measurement had already ruled out.
+
+## Note on the model pill
+
+An earlier run showed **Deepseek V4 Pro** on a session whose transcript said the live model was
+`deepseek-flash`, which is the shape of the cold-start bug fixed earlier. It did not reproduce: on the
+physical device the pill read **Deepseek Flash** for a flash session, so the pill does follow the
+session's own model rather than the profile default. Left as a note rather than a closed item — the
+earlier reading was never verified against that session's record.
 
 ## Method
 
