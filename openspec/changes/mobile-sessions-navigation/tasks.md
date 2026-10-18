@@ -427,6 +427,15 @@
       `terminal · complete` stayed under the reply forever.
 - [x] S7 21 files / 183 tests, `tsc` clean, built and installed on the iPhone 13 Pro.
 
+## Phase T — the profile picker on a phone
+
+- [x] T1 On the phone the picker was unreachable: the rail is a Radix `Sheet`, and a menu portalled to
+      `document.body` from inside a modal dialog is inert — the tap dismissed the drawer instead. The
+      picker now also lives in the **title bar**, outside the drawer. `evidence/phone-profile-switch.md`.
+- [x] T2 `MobileSelect` opens toward the room it has (up from the composer pills and the rail footer, down
+      from the title bar); before, it was always bottom-anchored and would have opened off-screen.
+- [x] T3 `ProfileSelect` extracted so the footer and the title bar share one picker instead of two copies.
+
 ## Verification
 
 - [x] List → session round-trip on the iPad simulator (back transition still unit-test only).

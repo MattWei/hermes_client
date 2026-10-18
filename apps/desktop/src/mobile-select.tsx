@@ -36,7 +36,7 @@ export function MobileSelect({ ariaLabel, groups, label, onSelect, selectedGroup
   selectedId: string
 }) {
   const [open, setOpen] = useState(false)
-  const [anchor, setAnchor] = useState<{ bottom: number, left: number } | null>(null)
+  const [anchor, setAnchor] = useState<{ bottom?: number, left: number, top?: number } | null>(null)
   const buttonRef = useRef<HTMLButtonElement | null>(null)
   const listRef = useRef<HTMLDivElement | null>(null)
   const rootRef = useRef<HTMLDivElement | null>(null)
@@ -44,10 +44,14 @@ export function MobileSelect({ ariaLabel, groups, label, onSelect, selectedGroup
   function openAtTrigger() {
     const rect = buttonRef.current?.getBoundingClientRect()
     if (rect) {
+      // Opens toward the room it has. These controls usually sit at the bottom of their surface and the
+      // list escapes upward; the phone's title bar is the other case, with everything below it.
+      const vertical = rect.top > window.innerHeight - rect.bottom
+        ? { bottom: window.innerHeight - rect.top + 6 }
+        : { top: rect.bottom + 6 }
       setAnchor({
-        // Opens upward: these controls sit at the bottom of their surface.
-        bottom: window.innerHeight - rect.top + 6,
-        left: Math.max(VIEWPORT_MARGIN, Math.min(rect.left, window.innerWidth - MENU_WIDTH - VIEWPORT_MARGIN))
+        left: Math.max(VIEWPORT_MARGIN, Math.min(rect.left, window.innerWidth - MENU_WIDTH - VIEWPORT_MARGIN)),
+        ...vertical
       })
     }
     setOpen(true)
@@ -122,7 +126,7 @@ export function MobileSelect({ ariaLabel, groups, label, onSelect, selectedGroup
         className="fixed z-[100] max-h-64 overflow-y-auto rounded-xl border border-(--ui-stroke-tertiary) bg-background p-1 shadow-lg"
         ref={listRef}
         role="menu"
-        style={{ bottom: anchor.bottom, left: anchor.left, width: MENU_WIDTH }}
+        style={{ bottom: anchor.bottom, left: anchor.left, top: anchor.top, width: MENU_WIDTH }}
       >
         {groups.map(group => <div key={group.id}>
           {group.label && <p className="px-2 pb-0.5 pt-1 text-[0.65rem] uppercase tracking-wider text-[color:var(--ui-text-tertiary)]">

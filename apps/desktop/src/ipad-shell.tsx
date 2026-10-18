@@ -82,6 +82,50 @@ function CloseDrawerAfterPick() {
   return null
 }
 
+/** The profile picker: which workspace the gateway answers from. */
+function ProfileSelect({ activeProfile, onSelectProfile, profiles }: {
+  activeProfile: string
+  onSelectProfile: (profile: string) => void
+  profiles: MobileProfileSummary[]
+}) {
+  return <MobileSelect
+    ariaLabel="Profile"
+    groups={[{
+      id: '',
+      items: profiles.map(profile => ({ id: profile.name, label: profile.displayName || profile.name })),
+      label: ''
+    }]}
+    label={profiles.find(profile => profile.name === activeProfile)?.displayName || activeProfile || 'Profile'}
+    onSelect={profile => {
+      if (profile !== activeProfile) {
+        onSelectProfile(profile)
+      }
+    }}
+    selectedGroupId=""
+    selectedId={activeProfile}
+  />
+}
+
+/**
+ * The profile picker, in the title bar, for a phone.
+ *
+ * On a phone the session list is a Radix Sheet, and everything outside a modal dialog's content is
+ * inert: a menu portalled to `document.body` from the footer never received the tap — the tap dismissed
+ * the drawer instead, so the profile could not be changed at all. The title bar is outside the drawer,
+ * where the same picker behaves exactly as it does on a tablet.
+ */
+function PhoneProfileSwitcher(props: {
+  activeProfile: string
+  onSelectProfile: (profile: string) => void
+  profiles: MobileProfileSummary[]
+}) {
+  const { isMobile } = useSidebar()
+  if (!isMobile || props.profiles.length < 2) return null
+  return <div className="w-32 shrink-0">
+    <ProfileSelect {...props} />
+  </div>
+}
+
 export function IpadShell({
   activeProfile, activeSessionId, activeTitle, children, connectionMessage, gatewayHost, gatewayStatus,
   onCreate, onDelete, onDisconnect, onOpen, onRefresh, onRename, onSelectProfile, onSetPinned, profiles, sessions
@@ -395,21 +439,10 @@ export function IpadShell({
           {profiles.length > 1 && <div className="px-1 pb-1">
             {/* Drawn, not a native `<select>`: the platform control left a stale composited layer in
                 this exact spot after repeated width changes, visible again after backgrounding. */}
-            <MobileSelect
-              ariaLabel="Profile"
-              groups={[{
-                id: '',
-                items: profiles.map(profile => ({ id: profile.name, label: profile.displayName || profile.name })),
-                label: ''
-              }]}
-              label={profiles.find(profile => profile.name === activeProfile)?.displayName || activeProfile || 'Profile'}
-              onSelect={profile => {
-                if (profile !== activeProfile) {
-                  onSelectProfile(profile)
-                }
-              }}
-              selectedGroupId=""
-              selectedId={activeProfile}
+            <ProfileSelect
+              activeProfile={activeProfile}
+              onSelectProfile={onSelectProfile}
+              profiles={profiles}
             />
           </div>}
           {/* Which gateway this is, and whether anything is wrong — not a log. Session chatter and
@@ -462,6 +495,11 @@ export function IpadShell({
               {connectionMessage}
             </p>}
           </div>
+          <PhoneProfileSwitcher
+            activeProfile={activeProfile}
+            onSelectProfile={onSelectProfile}
+            profiles={profiles}
+          />
         </header>
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4">
           {children}
