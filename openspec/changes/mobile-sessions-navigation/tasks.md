@@ -394,6 +394,21 @@
 - [x] Q4 The rail went in-flow (`relative!`) and the now-dead re-raster mitigation was deleted rather
       than left behind with a false premise.
 
+## Phase R — the surface on a phone
+
+- [x] R1 iPhone 13 Pro simulator (iOS 26.5) reached the login form, then the shell, on a loopback build.
+      `evidence/phone-layout.md`.
+- [x] R2 "The session list is gone below 768px" was wrong: the primitive renders a **Sheet drawer** there,
+      so `[data-slot=sidebar]` is absent until the header trigger is pressed. Measured, not assumed:
+      `win 390x844 md=false / sidebar: absent / inset: 0,0 390x844`.
+- [x] R3 `index.html` gained `viewport-fit=cover`. Every `env(safe-area-inset-*)` in the shell was already
+      written and resolving to 0 — measured `top=47px bottom=34px` after the change, header 69→92px.
+- [x] R4 The drawer covered the session it had just opened. `CloseDrawerAfterPick` closes it on a
+      delegated click inside a `sidebar-menu-item`, mobile only — one listener for sessions, "start new
+      session" and "refresh".
+- [x] R5 Regression: 21 files / 179 tests pass, `tsc --noEmit` clean, clean build installed and verified
+      by screenshot (header below the status bar, composer and its pills above the home indicator).
+
 ## Verification
 
 - [x] List → session round-trip on the iPad simulator (back transition still unit-test only).

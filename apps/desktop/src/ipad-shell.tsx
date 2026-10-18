@@ -8,7 +8,7 @@ import { clampSidebarWidth } from './mobile-sidebar-width'
 import { SearchField } from './components/ui/search-field'
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarGroupLabel,
-  SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger
+  SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger, useSidebar
 } from './components/ui/sidebar'
 import { useI18n } from './i18n'
 import { normalize } from './lib/text'
@@ -59,6 +59,27 @@ interface SessionGroup {
  */
 export function sessionLabel(session?: MobileSessionListItem | null): string {
   return session?.title?.trim() || session?.preview?.trim() || 'Untitled session'
+}
+
+/**
+ * On a phone the session list is a drawer: anything picked inside it has to get out of the way of
+ * what it opened, or the list keeps covering the conversation it just switched to. On a wide screen
+ * the list is a permanent column, and there is nothing to close.
+ *
+ * Delegated from the document rather than threaded through every row: the pick is a menu-item press,
+ * which also covers "start new session" and "refresh" — anything that changes what the pane shows.
+ */
+function CloseDrawerAfterPick() {
+  const { isMobile, setOpenMobile } = useSidebar()
+  useEffect(() => {
+    if (!isMobile) return
+    const onClick = (event: MouseEvent) => {
+      if ((event.target as HTMLElement | null)?.closest('[data-slot=sidebar-menu-item]')) setOpenMobile(false)
+    }
+    document.addEventListener('click', onClick)
+    return () => document.removeEventListener('click', onClick)
+  }, [isMobile, setOpenMobile])
+  return null
 }
 
 export function IpadShell({
@@ -206,6 +227,7 @@ export function IpadShell({
       className={`${resizing ? '[&_*]:select-none [&_*]:transition-none! ' : ''}h-svh min-h-0 [-webkit-tap-highlight-color:transparent] [&>[data-slot=sidebar]]:shrink-0 [&_[data-slot=sidebar-gap]]:hidden`}
       style={sidebarWidth == null ? undefined : { '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}
     >
+      <CloseDrawerAfterPick />
       {/* `select-none` on the whole rail, not just while dragging: a selection started by a tap can
           outlive the tap, and the chrome has nothing worth selecting. The transcript stays selectable —
           it lives in the inset, outside this element. */}
