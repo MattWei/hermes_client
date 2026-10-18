@@ -36,21 +36,39 @@ export function MobileSelect({ ariaLabel, groups, label, onSelect, selectedGroup
   selectedId: string
 }) {
   const [open, setOpen] = useState(false)
-  const [anchor, setAnchor] = useState<{ bottom?: number, left: number, top?: number } | null>(null)
+  const [anchor, setAnchor] = useState<{ bottom?: number, left: number, positioned: 'absolute' | 'fixed', top?: number } | null>(null)
+  const [container, setContainer] = useState<HTMLElement | null>(null)
   const buttonRef = useRef<HTMLButtonElement | null>(null)
   const listRef = useRef<HTMLDivElement | null>(null)
   const rootRef = useRef<HTMLDivElement | null>(null)
 
   function openAtTrigger() {
-    const rect = buttonRef.current?.getBoundingClientRect()
+    const button = buttonRef.current
+    const rect = button?.getBoundingClientRect()
     if (rect) {
-      // Opens toward the room it has. These controls usually sit at the bottom of their surface and the
-      // list escapes upward; the phone's title bar is the other case, with everything below it.
-      const vertical = rect.top > window.innerHeight - rect.bottom
-        ? { bottom: window.innerHeight - rect.top + 6 }
-        : { top: rect.bottom + 6 }
+      /*
+       * Inside a modal dialog, everything outside its content is inert: a list portalled to
+       * `document.body` never receives the tap, and the tap dismisses the dialog instead. So the list
+       * lives in the dialog with the control, positioned against the dialog's own box.
+       */
+      const dialog = button?.closest('[role="dialog"]') as HTMLElement | null
+      const box = dialog?.getBoundingClientRect()
+      const originTop = box?.top ?? 0
+      const originLeft = box?.left ?? 0
+      const originRight = box?.right ?? window.innerWidth
+      const originBottom = box?.bottom ?? window.innerHeight
+
+      // Opens toward the room it has: these controls usually sit at the bottom of their surface.
+      const roomAbove = rect.top - originTop
+      const roomBelow = originBottom - rect.bottom
+      const vertical = roomAbove > roomBelow
+        ? { bottom: originBottom - rect.top + 6 }
+        : { top: rect.bottom - originTop + 6 }
+
+      setContainer(dialog ?? document.body)
       setAnchor({
-        left: Math.max(VIEWPORT_MARGIN, Math.min(rect.left, window.innerWidth - MENU_WIDTH - VIEWPORT_MARGIN)),
+        left: Math.max(VIEWPORT_MARGIN, Math.min(rect.left - originLeft, originRight - originLeft - MENU_WIDTH - VIEWPORT_MARGIN)),
+        positioned: dialog ? 'absolute' : 'fixed',
         ...vertical
       })
     }
@@ -123,7 +141,7 @@ export function MobileSelect({ ariaLabel, groups, label, onSelect, selectedGroup
     </button>
     {open && anchor && createPortal(
       <div
-        className="fixed z-[100] max-h-64 overflow-y-auto rounded-xl border border-(--ui-stroke-tertiary) bg-background p-1 shadow-lg"
+        className={`${anchor.positioned} z-[100] max-h-64 overflow-y-auto rounded-xl border border-(--ui-stroke-tertiary) bg-background p-1 shadow-lg`}
         ref={listRef}
         role="menu"
         style={{ bottom: anchor.bottom, left: anchor.left, top: anchor.top, width: MENU_WIDTH }}
@@ -148,7 +166,7 @@ export function MobileSelect({ ariaLabel, groups, label, onSelect, selectedGroup
           })}
         </div>)}
       </div>,
-      document.body
+      container ?? document.body
     )}
   </div>
 }

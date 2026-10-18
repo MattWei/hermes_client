@@ -107,22 +107,27 @@ function ProfileSelect({ activeProfile, onSelectProfile, profiles }: {
 }
 
 /**
- * The profile picker, in the title bar, for a phone.
+ * The rail's profile picker.
  *
- * On a phone the session list is a Radix Sheet, and everything outside a modal dialog's content is
- * inert: a menu portalled to `document.body` from the footer never received the tap — the tap dismissed
- * the drawer instead, so the profile could not be changed at all. The title bar is outside the drawer,
- * where the same picker behaves exactly as it does on a tablet.
+ * On a phone the rail is a modal dialog, and a menu portalled to `document.body` from inside one is inert
+ * (see `MobileSelect`, which portals into the dialog instead). Picking a profile replaces the whole
+ * workspace, so the drawer gets out of the way.
  */
-function PhoneProfileSwitcher(props: {
+function RailProfileSwitcher(props: {
   activeProfile: string
   onSelectProfile: (profile: string) => void
   profiles: MobileProfileSummary[]
 }) {
-  const { isMobile } = useSidebar()
-  if (!isMobile || props.profiles.length < 2) return null
-  return <div className="w-32 shrink-0">
-    <ProfileSelect {...props} />
+  const { isMobile, setOpenMobile } = useSidebar()
+  if (props.profiles.length < 2) return null
+  return <div className="px-1 pb-1">
+    <ProfileSelect
+      {...props}
+      onSelectProfile={profile => {
+        if (isMobile) setOpenMobile(false)
+        props.onSelectProfile(profile)
+      }}
+    />
   </div>
 }
 
@@ -436,15 +441,11 @@ export function IpadShell({
         {/* `relative z-20`: the session list above is a scroll container, which WebKit composites as its
             own layer and can paint over a menu that escapes upward out of this footer. */}
         <SidebarFooter className="relative z-20 shrink-0 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-          {profiles.length > 1 && <div className="px-1 pb-1">
-            {/* Drawn, not a native `<select>`: the platform control left a stale composited layer in
-                this exact spot after repeated width changes, visible again after backgrounding. */}
-            <ProfileSelect
-              activeProfile={activeProfile}
-              onSelectProfile={onSelectProfile}
-              profiles={profiles}
-            />
-          </div>}
+          <RailProfileSwitcher
+            activeProfile={activeProfile}
+            onSelectProfile={onSelectProfile}
+            profiles={profiles}
+          />
           {/* Which gateway this is, and whether anything is wrong — not a log. Session chatter and
               errors surface under the session title instead. */}
           <div className="flex items-center gap-2 px-2 py-1 text-xs text-[color:var(--ui-text-tertiary)]">
@@ -495,11 +496,6 @@ export function IpadShell({
               {connectionMessage}
             </p>}
           </div>
-          <PhoneProfileSwitcher
-            activeProfile={activeProfile}
-            onSelectProfile={onSelectProfile}
-            profiles={profiles}
-          />
         </header>
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4">
           {children}

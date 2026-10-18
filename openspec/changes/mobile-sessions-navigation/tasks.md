@@ -430,11 +430,15 @@
 ## Phase T — the profile picker on a phone
 
 - [x] T1 On the phone the picker was unreachable: the rail is a Radix `Sheet`, and a menu portalled to
-      `document.body` from inside a modal dialog is inert — the tap dismissed the drawer instead. The
-      picker now also lives in the **title bar**, outside the drawer. `evidence/phone-profile-switch.md`.
-- [x] T2 `MobileSelect` opens toward the room it has (up from the composer pills and the rail footer, down
-      from the title bar); before, it was always bottom-anchored and would have opened off-screen.
-- [x] T3 `ProfileSelect` extracted so the footer and the title bar share one picker instead of two copies.
+      `document.body` from inside a modal dialog is inert — the tap dismissed the drawer instead.
+      `MobileSelect` now portals into the enclosing `[role="dialog"]` and positions itself against that
+      box, so the picker stays where it belongs. `evidence/phone-profile-switch.md`.
+- [x] T2 The list opens toward the room it has (up from the rail footer and the composer pills, down from
+      anything near the top); before, it was always bottom-anchored.
+- [x] T3 `ProfileSelect` extracted so both places share one picker, and a pick closes the drawer — the
+      whole workspace is about to be replaced.
+- [x] T4 An earlier attempt duplicated the picker into the title bar. It worked but read as chrome on the
+      wrong surface; reverted, and the rail's own picker fixed instead.
 
 ## Verification
 
