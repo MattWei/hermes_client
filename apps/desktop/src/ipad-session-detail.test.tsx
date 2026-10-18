@@ -181,23 +181,23 @@ describe('opening a session', () => {
     expect(conversation.scrollTop).toBe(900)
   })
 
-  it('comes back to the answer that arrived while the person was reading', () => {
+  it('leaves the reader where they are when the answer arrives', () => {
     const { rerender } = renderDetail('session-a')
     const conversation = screen.getByLabelText('Conversation')
     Object.defineProperty(conversation, 'scrollHeight', { configurable: true, value: 900 })
     Object.defineProperty(conversation, 'clientHeight', { configurable: true, value: 200 })
 
-    // Scrolled up mid-turn: the reply must not be missed because of that.
     conversation.scrollTop = 0
     fireEvent.scroll(conversation)
     rerender(detail(second))
     expect(conversation.scrollTop).toBe(900)
 
+    // Reading history while the agent works is a deliberate position; the answer must not drag the view.
     conversation.scrollTop = 0
     fireEvent.scroll(conversation)
     rerender(detail(reply))
 
-    expect(conversation.scrollTop).toBe(900)
+    expect(conversation.scrollTop).toBe(0)
   })
 
   it('keeps a turn\'s tool activity inside the transcript', () => {

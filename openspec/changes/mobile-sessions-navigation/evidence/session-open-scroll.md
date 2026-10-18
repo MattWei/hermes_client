@@ -30,20 +30,19 @@ Three details that are not incidental:
 Sending is a request to watch the answer. A person who had scrolled up to read history was left where they
 were: the re-armed tail never happened, so the reply landed below the fold.
 
-`followTail` is re-armed whenever a **new message id** arrives — the one the person sent, or the answer to
-it. Keyed on the id, not on the list length: streaming text inside one message keeps the same id, so reading
-history mid-stream still sticks.
+`followTail` is re-armed only when the **message the person sent** arrives — keyed on the message id, so one
+send re-arms once:
 
 ```tsx
 if (lastMessageId && lastMessageId !== lastSeenMessage.current) {
   lastSeenMessage.current = lastMessageId
-  followTail.current = true
+  if (lastMessageRole === 'user') followTail.current = true
 }
 ```
 
-The first version re-armed only on a `user` message and the report came back exactly as predicted by that
-gap: the send scrolled down, the person read history while the agent worked, and the arriving answer never
-brought the view back.
+The answer arriving deliberately does **not** re-arm. One round tried re-arming on any new message id; the
+report came back saying a reader who scrolled up while the agent worked should stay where they are. Scrolling
+to the reply is a choice that belongs to the person, not a consequence of the agent finishing.
 
 Tool activity moved **inside** the transcript, after the messages. As a sibling above the scroll container it
 pushed the conversation down and rendered at the top of the screen — a running turn looked like the session's
