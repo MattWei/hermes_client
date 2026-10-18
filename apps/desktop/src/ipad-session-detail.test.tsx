@@ -146,6 +146,7 @@ describe('opening a session', () => {
 
   const first: ChatMessage = { id: 'm1', parts: [{ text: 'first', type: 'text' }], role: 'assistant' }
   const second: ChatMessage = { id: 'm2', parts: [{ text: 'second', type: 'text' }], role: 'user' }
+  const reply: ChatMessage = { id: 'm3', parts: [{ text: 'third', type: 'text' }], role: 'assistant' }
 
   function renderDetail(sessionId: string) {
     return render(detail(first, sessionId))
@@ -176,6 +177,25 @@ describe('opening a session', () => {
 
     // Sending is a request to watch the answer, so the tail is re-armed.
     rerender(detail(second))
+
+    expect(conversation.scrollTop).toBe(900)
+  })
+
+  it('comes back to the answer that arrived while the person was reading', () => {
+    const { rerender } = renderDetail('session-a')
+    const conversation = screen.getByLabelText('Conversation')
+    Object.defineProperty(conversation, 'scrollHeight', { configurable: true, value: 900 })
+    Object.defineProperty(conversation, 'clientHeight', { configurable: true, value: 200 })
+
+    // Scrolled up mid-turn: the reply must not be missed because of that.
+    conversation.scrollTop = 0
+    fireEvent.scroll(conversation)
+    rerender(detail(second))
+    expect(conversation.scrollTop).toBe(900)
+
+    conversation.scrollTop = 0
+    fireEvent.scroll(conversation)
+    rerender(detail(reply))
 
     expect(conversation.scrollTop).toBe(900)
   })

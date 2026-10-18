@@ -678,6 +678,16 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
     })
   }, [gateway, sessionId])
 
+  /**
+   * Tool activity describes what the agent is doing *now*. Nothing else clears it, so the last
+   * `terminal · complete` used to sit under the reply forever; the turn finishing is the moment it stops
+   * being true.
+   */
+  const lastTurnMessage = messages[messages.length - 1]
+  useEffect(() => {
+    if (lastTurnMessage?.role === 'assistant' && !lastTurnMessage.pending) setToolActivities([])
+  }, [lastTurnMessage?.id, lastTurnMessage?.pending, lastTurnMessage?.role])
+
   useEffect(() => {
     if (!gateway || !sessionId) {
       return

@@ -188,11 +188,13 @@ export function IpadSessionDetail({
       openSession.current = sessionId
       followTail.current = true
     }
-    // Sending is a request to watch the answer, so it re-arms the tail even if the person had scrolled up
-    // to read history. Keyed on the message id so one send re-arms once — scrolling up mid-turn sticks.
+    // The turn's own activity is cleared by ipad-home when the answer lands; anything arriving here
+    // belongs to a running turn, so the tail follows it.
     if (lastMessageId && lastMessageId !== lastSeenMessage.current) {
       lastSeenMessage.current = lastMessageId
-      if (lastMessageRole === 'user') followTail.current = true
+      // Any new message is worth seeing — the person sent it, or the answer to it just arrived. Keyed on
+      // the id so streaming text inside one message does not re-arm, and reading history mid-stream sticks.
+      followTail.current = true
     }
     if (followTail.current) conversation.scrollTop = conversation.scrollHeight
   }, [lastMessageId, lastMessageRole, messages.length, sessionId, toolActivities.length])

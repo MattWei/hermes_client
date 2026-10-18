@@ -418,11 +418,14 @@
       `onScroll` (within 48px of the bottom), so a completed turn does not yank the view back.
 - [x] S3 Regression test: switching session ids expects `scrollTop === scrollHeight` (jsdom has no
       layout, so this covers the wiring; the visual check is on the device).
-- [x] S4 Sending re-arms the tail: a new **user** message (keyed on its id, so one send re-arms once)
-      pulls the view to the bottom even when the person had scrolled up to read history.
+- [x] S4 Sending re-arms the tail: any **new message id** pulls the view to the bottom — the one sent, and
+      the answer that arrives while the person is reading history. Streaming inside one message keeps its
+      id, so reading mid-stream still sticks.
 - [x] S5 Tool activity moved inside the transcript, after the messages — as a sibling above the scroll
       container it pushed the conversation down and showed a running turn at the top of the screen.
-- [x] S6 21 files / 182 tests, `tsc` clean, built and installed on the iPhone 13 Pro.
+- [x] S6 Tool activity is cleared when the turn is answered: nothing had cleared it, so the last
+      `terminal · complete` stayed under the reply forever.
+- [x] S7 21 files / 183 tests, `tsc` clean, built and installed on the iPhone 13 Pro.
 
 ## Verification
 

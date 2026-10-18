@@ -30,22 +30,30 @@ Three details that are not incidental:
 Sending is a request to watch the answer. A person who had scrolled up to read history was left where they
 were: the re-armed tail never happened, so the reply landed below the fold.
 
-`followTail` is re-armed when a **new** message arrives whose role is `user` — keyed on the message id, so
-one send re-arms once and scrolling up *during* the turn still sticks:
+`followTail` is re-armed whenever a **new message id** arrives — the one the person sent, or the answer to
+it. Keyed on the id, not on the list length: streaming text inside one message keeps the same id, so reading
+history mid-stream still sticks.
 
 ```tsx
 if (lastMessageId && lastMessageId !== lastSeenMessage.current) {
   lastSeenMessage.current = lastMessageId
-  if (lastMessageRole === 'user') followTail.current = true
+  followTail.current = true
 }
 ```
 
+The first version re-armed only on a `user` message and the report came back exactly as predicted by that
+gap: the send scrolled down, the person read history while the agent worked, and the arriving answer never
+brought the view back.
+
 Tool activity moved **inside** the transcript, after the messages. As a sibling above the scroll container it
 pushed the conversation down and rendered at the top of the screen — a running turn looked like the session's
-history rather than its latest step. Inside the container it sits where it happened and scrolls with it, and
-`toolActivities.length` is a dependency of the follow effect so each completed step keeps the view pinned.
+history rather than its latest step.
 
-Verified: 21 files / 182 tests, `tsc` clean, built and installed on the iPhone 13 Pro.
+It is also **cleared when the turn is answered** (`ipad-home.tsx`). Nothing had ever cleared it, so the last
+`terminal · complete` sat under the reply permanently — activity describes what is happening *now*, and the
+turn finishing is when that stops being true.
+
+Verified: 21 files / 183 tests, `tsc` clean, built and installed on the iPhone 13 Pro.
 
 ## Verification
 
