@@ -106,7 +106,6 @@ needs document scrolling; the connection form is not.
 Verified with the keyboard open: `in 844 vv 464 off 0 scroll 0 sh 464 form 341-464`.
 
 ## Note on the model pill
-
 An earlier run showed **Deepseek V4 Pro** on a session whose transcript said the live model was
 `deepseek-flash`, which is the shape of the cold-start bug fixed earlier. It did not reproduce: on the
 physical device the pill read **Deepseek Flash** for a flash session, so the pill does follow the
@@ -119,3 +118,9 @@ Every step here began with a measurement drawn into the screen from inside the a
 matchMedia result, each slot's `display`, the resolved safe-area values — because a simulator can be
 screenshotted but not inspected. Two of the three hypotheses formed before those numbers arrived (a
 missing rail, a hidden pane) were wrong; the numbers took one build each and ended the guessing.
+
+## Dictation on the phone
+
+Confirmed by the user on the iPhone 13 Pro: the microphone records, the permission prompt appears the
+first time, and the transcript lands in the composer. That was the last thing the simulator could not
+answer — a simulator has no microphone to grant.

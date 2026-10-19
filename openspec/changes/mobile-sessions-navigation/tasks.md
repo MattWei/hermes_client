@@ -408,6 +408,8 @@
       session" and "refresh".
 - [x] R5 Regression: 21 files / 179 tests pass, `tsc --noEmit` clean, clean build installed and verified
       by screenshot (header below the status bar, composer and its pills above the home indicator).
+- [x] R6 Dictation confirmed on the iPhone 13 Pro by the user — record, permission prompt, transcript in
+      the composer. The simulator has no microphone to grant, so this was the one thing it could not answer.
 
 ## Phase S — reading a resumed session
 
