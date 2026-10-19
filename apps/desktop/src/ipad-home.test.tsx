@@ -1649,5 +1649,27 @@ describe('IpadHome', () => {
 
     await waitFor(() => expect(screen.getByText('Read this')).toBeTruthy())
   })
+  it('says so when the session list could not be read', async () => {
+    const request = vi.fn(async () => ({}))
+    // Status answers, sessions do not: the rail would otherwise render empty and read as "no sessions".
+    const get = vi.fn(async (path: string) => {
+      if (path.startsWith('/api/sessions')) {
+        throw new Error('HTTP 500 while listing sessions')
+      }
+      return new Response(JSON.stringify({ gateway_running: true, gateway_state: 'running' }))
+    })
+
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), request }))} createRestClient={vi.fn(() => ({ get, patch: vi.fn(), post: vi.fn(), remove: vi.fn() }))} />)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'http://10.10.10.10:9119' } })
+    fireEvent.change(screen.getByLabelText('LAN session token'), { target: { value: 'lan-token' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I understand this LAN connection uses unencrypted HTTP and WS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Connect LAN gateway' }))
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('HTTP 500 while listing sessions'))
+  })
 
 })

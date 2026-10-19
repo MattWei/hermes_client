@@ -71,6 +71,8 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
   const [gateway, setGateway] = useState<(MobileGatewayRequest & MobilePromptGateway & { close(): void; onState?: (handler: (state: string) => void) => () => void }) | null>(null)
   const [rest, setRest] = useState<MobileGatewayRestClient | null>(null)
   const [sessions, setSessions] = useState<MobileSessionListItem[]>([])
+  // A list that could not be read must not look like a workspace with no sessions.
+  const [sessionListError, setSessionListError] = useState<string | null>(null)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [activeStoredSessionId, setActiveStoredSessionId] = useState<string | null>(null)
   const activeSessionRef = useRef({ runtimeSessionId: null as string | null, storedSessionId: null as string | null })
@@ -287,6 +289,27 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
    * fails is not a connection failure, so it must not overwrite the connected status.
    */
   function loadConnectedSurface(connectedGateway: NonNullable<typeof gateway>, restClient: MobileSessionRest, profile?: string) {
+    /**
+     * Read the list for one profile.
+     *
+     * A failure used to be swallowed, which left an empty rail that reads exactly like a workspace with no
+     * sessions — the one case where saying nothing is worse than saying what broke.
+     */
+    const loadSessions = (profileName?: string) => {
+      void createMobileSessionClient(connectedGateway, restClient).list(profileName)
+        .then(rows => {
+          setSessionListError(null)
+          setSessions(rememberPins(profileName ?? '', rows))
+        })
+        .catch(async (error: unknown) => {
+          // A stored session that expires between launches reads as an empty workspace unless the same
+          // re-authentication the refresh action does is attempted here too.
+          if (error instanceof MobileSessionAuthError && await reauthenticate()) {
+            return
+          }
+          setSessionListError(error instanceof Error ? error.message : 'Unable to load sessions')
+        })
+    }
     // Backend health for the sidebar footer. A failed read leaves the footer with what it last knew —
     // the sessions below it are the better evidence that the connection works.
     void restClient.get('/api/status')
@@ -302,21 +325,15 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
           const fallback = list.find(entry => entry.isDefault)?.name ?? ''
           if (fallback) {
             setActiveProfile(fallback)
-            void createMobileSessionClient(connectedGateway, restClient).list(fallback)
-              .then(rows => setSessions(rememberPins(fallback, rows)))
-              .catch(() => {})
+            loadSessions(fallback)
             return
           }
         }
-        void createMobileSessionClient(connectedGateway, restClient).list(profile)
-          .then(rows => setSessions(rememberPins(profile ?? '', rows)))
-          .catch(() => {})
+        loadSessions(profile)
       })
       .catch(() => {
         // Profile discovery failed; the session list is still worth loading without one.
-        void createMobileSessionClient(connectedGateway, restClient).list(profile)
-          .then(rows => setSessions(rememberPins(profile ?? '', rows)))
-          .catch(() => {})
+        loadSessions(profile)
       })
   }
 
@@ -328,6 +345,7 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
   function selectProfile(profile: string) {
     setActiveProfile(profile)
     setSessions([])
+    setSessionListError(null)
     setSessionId(null)
     setActiveStoredSessionId(null)
     setMessages([])
@@ -922,6 +940,7 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
           onRefresh={() => void refreshSessions()}
         onRename={(storedSessionId, title) => void renameStoredSession(storedSessionId, title)}
         onSetPinned={(storedSessionId, pinned) => void setSessionPinned(storedSessionId, pinned)}
+          sessionListError={sessionListError}
           sessions={sessions}
         >
           {view === 'session' && sessionLoading && <p className="py-10 text-sm text-[color:var(--ui-text-tertiary)]" role="status">Loading session…</p>}

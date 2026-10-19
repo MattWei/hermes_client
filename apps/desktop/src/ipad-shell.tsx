@@ -36,6 +36,8 @@ interface IpadShellProps {
   onSetPinned: (storedSessionId: string, pinned: boolean) => void
   onSelectProfile: (profile: string) => void
   profiles: MobileProfileSummary[]
+  /** Why the session list is empty, when it is empty because the read failed. */
+  sessionListError: string | null
   sessions: MobileSessionListItem[]
 }
 
@@ -133,7 +135,7 @@ function RailProfileSwitcher(props: {
 
 export function IpadShell({
   activeProfile, activeSessionId, activeTitle, children, connectionMessage, gatewayHost, gatewayStatus,
-  onCreate, onDelete, onDisconnect, onOpen, onRefresh, onRename, onSelectProfile, onSetPinned, profiles, sessions
+  onCreate, onDelete, onDisconnect, onOpen, onRefresh, onRename, onSelectProfile, onSetPinned, profiles, sessionListError, sessions
 }: IpadShellProps) {
   const { t } = useI18n()
   const [query, setQuery] = useState('')
@@ -311,6 +313,14 @@ export function IpadShell({
               value={query}
             />
           </div>
+          {/* Said here rather than left implicit: an empty list that failed to load looks exactly like a
+              workspace with nothing in it, and only one of those is worth acting on. */}
+          {sessionListError && <p
+            className="mx-1 rounded-lg border border-amber-500/50 px-2 py-1.5 text-xs text-amber-700 dark:text-amber-300"
+            role="alert"
+          >
+            Couldn’t load sessions · {sessionListError}
+          </p>}
         </SidebarHeader>
 
         <SidebarContent>

@@ -440,6 +440,15 @@
 - [x] T4 An earlier attempt duplicated the picker into the title bar. It worked but read as chrome on the
       wrong surface; reverted, and the rail's own picker fixed instead.
 
+## Phase U — saying what broke
+
+- [x] U1 A failed session-list read is now visible: `role="alert"` in the rail, above the list, naming
+      the failure. It used to be `.catch(() => {})`, so an empty rail and an empty workspace looked
+      identical. `evidence/session-list-visibility.md`.
+- [x] U2 The initial list read now attempts `reauthenticate()` on `MobileSessionAuthError`, as the refresh
+      action already did — an expired stored session no longer presents as "no sessions".
+- [x] U3 21 files / 184 tests, `tsc` clean, installed on the iPhone 13 Pro and the iPad Pro.
+
 ## Verification
 
 - [x] List → session round-trip on the iPad simulator (back transition still unit-test only).
