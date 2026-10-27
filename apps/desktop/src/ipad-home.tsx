@@ -83,6 +83,8 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
   const connectedAddress = useRef<{ address: string, mode: MobileConnectionMode } | null>(null)
   /** One recovery at a time: iOS can report the same dead socket repeatedly. */
   const recovering = useRef(false)
+  /** Set by a reconnect so the conversation that was open is re-attached once the new socket lands. */
+  const resumeAfterReconnect = useRef(false)
   /** Set by the sign-out gesture so the close it causes is not answered with a reconnect. */
   const signedOut = useRef(false)
   /** The live socket, readable from event handlers that must not close over a stale render. */
@@ -561,6 +563,24 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
   }, [])
 
   /**
+   * A reconnect re-attaches the conversation, not just the socket.
+   *
+   * The runtime session id belonged to the socket that died, so the durable id has to be resumed on the new
+   * one — otherwise the title is right and the transcript is gone. Runs after the state lands because
+   * `openStoredSession` needs the live gateway and REST client.
+   */
+  useEffect(() => {
+    if (!resumeAfterReconnect.current || !gateway || !rest) {
+      return
+    }
+    resumeAfterReconnect.current = false
+    const storedSessionId = activeSessionRef.current.storedSessionId
+    if (storedSessionId) {
+      void openStoredSession(storedSessionId)
+    }
+  }, [gateway, rest])
+
+  /**
    * A dropped socket is a reconnect, not a sign-out.
    *
    * The dashboard cookie outlives the socket, the backgrounded app and the reloaded WebView, so the cookie
@@ -605,7 +625,8 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
         connectedAddress.current = { address: connection.baseUrl, mode: 'lan' }
         setGateway(connectedGateway)
         setRest(restClient)
-        setView('list')
+        // Re-attach the conversation that was open: a title without its transcript is not the session.
+        resumeAfterReconnect.current = Boolean(activeSessionRef.current.storedSessionId)
         setConnectionMessage('LAN gateway connected.')
         void loadConnectedSurface(connectedGateway, restClient, activeProfile || undefined)
         return true
@@ -618,7 +639,8 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
       signedOut.current = false
       setGateway(connectedGateway)
       setRest(restClient)
-      setView('list')
+      // Re-attach the conversation that was open: a title without its transcript is not the session.
+      resumeAfterReconnect.current = Boolean(activeSessionRef.current.storedSessionId)
       setConnectionMessage('Remote gateway connected.')
       void loadConnectedSurface(connectedGateway, restClient, activeProfile || undefined)
       return true

@@ -1716,4 +1716,55 @@ describe('IpadHome', () => {
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('HTTP 500 while listing sessions'))
   })
 
+  it('re-attaches the open conversation when the socket comes back', async () => {
+    // A reconnect that only re-dials leaves the title on screen and the transcript gone; the durable id has
+    // to be resumed on the new socket.
+    const ID = 'stored-91'
+    let onState: ((state: string) => void) | undefined
+    const get = vi.fn(async (path: string) => {
+      if (path === '/api/profiles') {
+        return new Response(JSON.stringify({ profiles: [] }))
+      }
+      if (path.includes('/messages')) {
+        return new Response(JSON.stringify({
+          messages: [{ content: 'Read this', role: 'assistant', timestamp: 1 }],
+          session_id: ID
+        }))
+      }
+      return new Response(JSON.stringify({
+        sessions: [{ id: ID, pinned: false, preview: 'Trip planning', title: null }]
+      }))
+    })
+    const request = vi.fn(async (method: string) => method === 'session.resume'
+      ? { session_id: 'runtime-1', session_key: ID, stored_session_id: ID }
+      : {})
+    const connectGateway = vi.fn(async () => ({
+      close: vi.fn(), on: vi.fn(() => vi.fn()), request,
+      onState: (handler: (state: string) => void) => { onState = handler; handler('open'); return vi.fn() }
+    }))
+
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={connectGateway} createRestClient={vi.fn(() => ({ get, patch: vi.fn(), post: vi.fn(), remove: vi.fn() }))} />)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'http://10.10.10.10:9119' } })
+    fireEvent.change(screen.getByLabelText('LAN session token'), { target: { value: 'lan-token' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I understand this LAN connection uses unencrypted HTTP and WS' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Connect LAN gateway' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open Trip planning' })).toBeTruthy())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Trip planning' }))
+    await waitFor(() => expect(screen.getByText('Read this')).toBeTruthy())
+    const resumesBefore = request.mock.calls.filter(call => call[0] === 'session.resume').length
+
+    act(() => onState?.('closed'))
+
+    await waitFor(() => expect(
+      request.mock.calls.filter(call => call[0] === 'session.resume').length
+    ).toBeGreaterThan(resumesBefore))
+    expect(screen.getByText('Read this')).toBeTruthy()
+    expect(screen.queryByText('Select a session, or start a new one.')).toBeNull()
+  })
+
 })
