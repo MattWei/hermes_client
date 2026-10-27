@@ -16,6 +16,7 @@ import { createMobileRemoteLoginClient } from './mobile-remote-login'
 import { createMobileSessionClient, loadMobileSessionHistory, MobileSessionAuthError, type MobileGatewayRequest, type MobileSessionListItem, type MobileSessionRest } from './mobile-session-client'
 import { createMobileProfileClient, type MobileProfileSummary } from './mobile-profile-client'
 import { forgetLastSession, readLastSession, rememberLastSession } from './mobile-last-session'
+import { forgetLastConnection, readLastConnection, rememberLastConnection } from './mobile-last-connection'
 import { mergePinsFromRows, readCachedPins, writeCachedPins } from './mobile-session-pins'
 import { createMobileSpeechRecognizer } from './mobile-speech-recognizer'
 import { createMobileToolActivityClient, type MobileToolActivity } from './mobile-tool-activity-client'
@@ -78,6 +79,17 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
   const activeSessionRef = useRef({ runtimeSessionId: null as string | null, storedSessionId: null as string | null })
   // One restore attempt per mounted surface: a later list refresh must not reopen what the user closed.
   const restoreAttempted = useRef(false)
+  /** Where this surface is connected, so a dropped socket can be re-dialled without a password. */
+  const connectedAddress = useRef<{ address: string, mode: MobileConnectionMode } | null>(null)
+  /** One recovery at a time: iOS can report the same dead socket repeatedly. */
+  const recovering = useRef(false)
+  /** Set by the sign-out gesture so the close it causes is not answered with a reconnect. */
+  const signedOut = useRef(false)
+  /** The live socket, readable from event handlers that must not close over a stale render. */
+  const gatewayRef = useRef<null | (MobileGatewayRequest & MobilePromptGateway & { close(): void })>(null)
+  useEffect(() => {
+    gatewayRef.current = gateway
+  }, [gateway])
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [draft, setDraft] = useState('')
   const [voiceState, setVoiceState] = useState<MobileVoiceState>('idle')
@@ -223,6 +235,7 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
       setRest(restClient)
       setView('list')
       setConnectionMessage('LAN gateway connected.')
+      connectedAddress.current = { address: connection.baseUrl, mode: 'lan' }
       // Load the list as soon as the gateway is up. A failure here is not a
       // connection failure, so it must not overwrite the connected status.
       void loadConnectedSurface(connectedGateway, restClient)
@@ -274,6 +287,10 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
       setRest(restClient)
       setView('list')
       setConnectionMessage('Remote gateway connected.')
+      signedOut.current = false
+      // The address is what a reconnect needs on a launch that has no password to offer.
+      connectedAddress.current = { address: connection.baseUrl, mode: 'secure' }
+      rememberLastConnection(connection.baseUrl)
       // A list-load failure is not a connection failure, so it must not overwrite the
       // connected status.
       void loadConnectedSurface(connectedGateway, restClient)
@@ -468,7 +485,11 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
   }
 
   function disconnectGateway() {
+    signedOut.current = true
     gateway?.close()
+    // An explicit sign-out is the one gesture that stops the next launch from reconnecting on its own.
+    forgetLastConnection()
+    connectedAddress.current = null
     // Signing out drops the connection, not the place: reconnecting — on the next launch, or on a
     // sign-in a moment later — returns to the conversation the user was reading. Arming the
     // restore again is what lets the same run do it; without this the one-attempt-per-surface
@@ -486,6 +507,8 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
       try {
         const stored = await credentialStore.readAutoLogin()
         if (!stored) {
+          // A launch that has no password to offer can still hold a live cookie.
+          void resumeWithCookie()
           return
         }
         setMode('secure')
@@ -516,10 +539,94 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
     }
     return gateway.onState(state => {
       if (state === 'closed' || state === 'error') {
-        resetGatewayState('Gateway connection lost.')
+        void recoverConnection()
       }
     })
   }, [gateway])
+
+  /**
+   * Coming back from the background re-dials if the socket died while suspended.
+   *
+   * iOS suspends the whole app, and a suspended WebSocket is simply gone; the close event may never have
+   * been delivered, so returning to the foreground has to check rather than wait.
+   */
+  useEffect(() => {
+    function onVisible() {
+      if (document.visibilityState === 'visible' && !gatewayRef.current) {
+        void recoverConnection()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [])
+
+  /**
+   * A dropped socket is a reconnect, not a sign-out.
+   *
+   * The dashboard cookie outlives the socket, the backgrounded app and the reloaded WebView, so the cookie
+   * is asked first and the stored password second. Only when both are refused is the person actually signed
+   * out — and only then does the surface fall back to the form.
+   */
+  async function recoverConnection() {
+    if (recovering.current || signedOut.current) {
+      return
+    }
+    recovering.current = true
+    try {
+      setConnectionMessage('Reconnecting…')
+      if (await resumeWithCookie()) {
+        return
+      }
+      if (await reauthenticate()) {
+        return
+      }
+      connectedAddress.current = null
+      resetGatewayState('Gateway connection lost. Sign in again.')
+    } finally {
+      recovering.current = false
+    }
+  }
+
+  /** Re-dials on whatever the platform still holds: the LAN token, or the dashboard cookie. */
+  async function resumeWithCookie(): Promise<boolean> {
+    const last = connectedAddress.current ?? (readLastConnection() ? { address: readLastConnection() as string, mode: 'secure' as MobileConnectionMode } : null)
+    if (!last) {
+      return false
+    }
+    try {
+      const connection = parseMobileConnection(last.address, last.mode, connectionOptions)
+      if (last.mode === 'lan') {
+        const token = await credentialStore.readLanSessionToken()
+        if (!token) {
+          return false
+        }
+        const restClient = createRestClient({ ...connection, ...connectionOptions, token })
+        const connectedGateway = await connectGateway({ ...connection, ...connectionOptions, token })
+        connectedAddress.current = { address: connection.baseUrl, mode: 'lan' }
+        setGateway(connectedGateway)
+        setRest(restClient)
+        setView('list')
+        setConnectionMessage('LAN gateway connected.')
+        void loadConnectedSurface(connectedGateway, restClient, activeProfile || undefined)
+        return true
+      }
+      const restClient = createRestClient({ ...connection, ...connectionOptions })
+      const ticket = await createMobileRemoteLoginClient(restClient).mintWsTicket()
+      const connectedGateway = await connectGateway({ ...connection, ...connectionOptions, ticket })
+      connectedAddress.current = { address: connection.baseUrl, mode: 'secure' }
+      rememberLastConnection(connection.baseUrl)
+      signedOut.current = false
+      setGateway(connectedGateway)
+      setRest(restClient)
+      setView('list')
+      setConnectionMessage('Remote gateway connected.')
+      void loadConnectedSurface(connectedGateway, restClient, activeProfile || undefined)
+      return true
+    } catch {
+      // A refused cookie (or an unreachable host) falls through to the stored credentials.
+      return false
+    }
+  }
 
   /**
    * Re-establish the session when the gateway refuses the cookie.

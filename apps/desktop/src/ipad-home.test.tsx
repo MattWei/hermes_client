@@ -1,10 +1,15 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, beforeEach, expect, it, vi } from 'vitest'
 
 import { IpadHome } from './ipad-home'
 import { deferred } from './test/deferred'
 
 describe('IpadHome', () => {
+  // Every case starts signed out: the reconnect address is persisted, and would leak between tests.
+  beforeEach(() => {
+    window.localStorage.clear()
+  })
+
   it('shows the offline Hermes home without starting a backend', () => {
     render(<IpadHome />)
 
@@ -127,11 +132,12 @@ describe('IpadHome', () => {
     expect(screen.queryByRole('button', { name: 'Send message' })).toBeNull()
   })
 
-  it('returns to the offline state when the gateway closes remotely', async () => {
+  it('reconnects instead of signing out when the gateway drops the socket', async () => {
     let onState: ((state: string) => void) | undefined
+    const connectGateway = vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), onState: (handler: (state: string) => void) => { onState = handler; handler('open'); return vi.fn() }, request: vi.fn() }))
     render(<IpadHome credentialStore={{
       clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(async () => 'stored-lan-token'), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
-    }} connectGateway={vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), onState: (handler: (state: string) => void) => { onState = handler; handler('open'); return vi.fn() }, request: vi.fn() }))} />)
+    }} connectGateway={connectGateway} />)
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Connection mode' }), { target: { value: 'lan' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'http://10.10.10.10:9119' } })
@@ -140,11 +146,49 @@ describe('IpadHome', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Connect LAN gateway' }))
     await waitFor(() => expect(onState).toBeTruthy())
 
+    // iOS suspends the app and the socket dies; the token outlives it, so this is a reconnect.
     act(() => onState?.('closed'))
 
-    expect(screen.getByText('Gateway connection lost.')).toBeTruthy()
-    // No composer on the disconnected page, so there is no Send button to disable.
-    expect(screen.queryByRole('button', { name: 'Send message' })).toBeNull()
+    await waitFor(() => expect(connectGateway).toHaveBeenCalledTimes(2))
+    expect(screen.queryByText('Gateway connection lost.')).toBeNull()
+  })
+
+  it('gives up on the session only when it cannot be renewed', async () => {
+    let onState: ((state: string) => void) | undefined
+    let refused = false
+    const connectGateway = vi.fn(async () => ({ close: vi.fn(), on: vi.fn(() => vi.fn()), onState: (handler: (state: string) => void) => { onState = handler; handler('open'); return vi.fn() }, request: vi.fn() }))
+    const createRestClient = vi.fn(() => ({
+      get: vi.fn(async (path: string) => path === '/api/auth/providers'
+        ? new Response(JSON.stringify({ providers: [{ name: 'basic', supports_password: true }] }))
+        : new Response(JSON.stringify({ sessions: [] }))),
+      patch: vi.fn(),
+      post: vi.fn(async (path: string) => {
+        if (path === '/auth/password-login') {
+          return new Response(JSON.stringify({ ok: true }))
+        }
+        // The first ticket buys the connection; after the drop the cookie is refused.
+        return refused
+          ? new Response('{}', { status: 401 })
+          : new Response(JSON.stringify({ ticket: 'one-shot' }))
+      }),
+      remove: vi.fn()
+    }))
+    render(<IpadHome credentialStore={{
+      clear: vi.fn(), clearAutoLogin: vi.fn(), read: vi.fn(), readAutoLogin: vi.fn(async () => null), readLanSessionToken: vi.fn(), save: vi.fn(), saveAutoLogin: vi.fn(), saveLanSessionToken: vi.fn()
+    }} connectGateway={connectGateway} createRestClient={createRestClient} />)
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Backend address' }), { target: { value: 'https://gateway.example.test' } })
+    fireEvent.change(screen.getByLabelText('Remote username'), { target: { value: 'alice' } })
+    fireEvent.change(screen.getByLabelText('Remote password'), { target: { value: 'secret' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    await waitFor(() => expect(onState).toBeTruthy())
+
+    refused = true
+    act(() => onState?.('closed'))
+
+    // Nothing left to renew with: no cookie, no stored password. Only now is the person signed out.
+    await waitFor(() => expect(screen.getByText('Gateway connection lost. Sign in again.')).toBeTruthy())
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeTruthy()
   })
 
   it('loads the backend session list automatically once the gateway connects', async () => {
