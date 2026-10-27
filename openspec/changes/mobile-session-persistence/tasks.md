@@ -27,6 +27,7 @@
 
 - [x] 4.1 `ipad-home.test.tsx`: the socket closing reconnects (`connectGateway` twice, no "connection
       lost" copy); the form appears only when the cookie is refused **and** no password is stored.
-- [x] 4.2 53 tests in that file, `tsc --noEmit` clean.
-- [ ] 4.3 Device check: open a conversation, background the app, reopen — the conversation is still there
-      and no sign-in form appears.
+- [x] 4.2 54 tests in that file, `tsc --noEmit` clean.
+- [x] 4.3 Device check (iPhone 13 Pro, iOS 18.3.2): open a conversation, background the app, return —
+      the same conversation is on screen with its transcript, no sign-in form, no empty state. Separately,
+      `logout` still returns to the form and does not reconnect on the next launch.

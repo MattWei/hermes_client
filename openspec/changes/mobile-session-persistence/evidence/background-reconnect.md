@@ -47,3 +47,18 @@ would have answered the existing cookie with a fresh ticket.
 - the form appears only when the cookie is refused **and** no password is stored.
 
 53 tests pass in that file; `tsc` clean.
+
+## The second half: a reconnect must re-attach the conversation
+
+The first cut reconnected but set `view` back to `list`, so the title of the conversation was right and the
+pane read *"Select a session, or start a new one."* The socket was back; the session was not.
+
+The runtime session id belonged to the socket that died. The durable id is what re-attaches, so a reconnect
+now flags `activeSessionRef.current.storedSessionId` and an effect resumes it once the new gateway and REST
+client exist (`openStoredSession` needs the live ones, so it cannot run inside the reconnect itself).
+
+## On the device
+
+iPhone 13 Pro, iOS 18.3.2: open a conversation → background the app → return. The same conversation is on
+screen with its transcript; no sign-in form, no empty state. `logout` still returns to the form and does not
+reconnect on the next launch.
