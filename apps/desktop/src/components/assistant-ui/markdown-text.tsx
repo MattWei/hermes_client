@@ -31,6 +31,7 @@ import {
   mediaName,
   mediaPathFromMarkdownHref,
   resolveMediaDisplaySrc,
+  hasMobileMediaLoader,
   resolveMediaPlaybackSrc
 } from '@/lib/media'
 import { previewTargetFromMarkdownHref } from '@/lib/preview-targets'
@@ -128,6 +129,12 @@ function OpenMediaFailedNote({ name }: { name: string }) {
 
 function OpenMediaButton({ kind, path }: { kind: 'audio' | 'video'; path: string }) {
   const { open, openFailed } = useOpenMediaFile(path)
+
+  // A phone has no "open this file" handoff — the player above already fetched the bytes itself. When they
+  // could not be played, say why instead of offering a button that cannot do anything.
+  if (hasMobileMediaLoader()) {
+    return <OpenMediaFailedNote name={mediaName(path)} />
+  }
 
   return (
     <span className="block">

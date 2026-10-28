@@ -15,6 +15,7 @@ import { createMobileGatewayRestClient, type MobileGatewayRestClient, type Mobil
 import { createMobileRemoteLoginClient } from './mobile-remote-login'
 import { createMobileSessionClient, loadMobileSessionHistory, MobileSessionAuthError, type MobileGatewayRequest, type MobileSessionListItem, type MobileSessionRest } from './mobile-session-client'
 import { createMobileProfileClient, type MobileProfileSummary } from './mobile-profile-client'
+import { installMobileMediaLoader } from './mobile-media'
 import { forgetLastSession, readLastSession, rememberLastSession } from './mobile-last-session'
 import { forgetLastConnection, readLastConnection, rememberLastConnection } from './mobile-last-connection'
 import { mergePinsFromRows, readCachedPins, writeCachedPins } from './mobile-session-pins'
@@ -238,6 +239,7 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
       setView('list')
       setConnectionMessage('LAN gateway connected.')
       connectedAddress.current = { address: connection.baseUrl, mode: 'lan' }
+      installMobileMediaLoader({ baseUrl: connection.baseUrl, mode: 'lan', token })
       // Load the list as soon as the gateway is up. A failure here is not a
       // connection failure, so it must not overwrite the connected status.
       void loadConnectedSurface(connectedGateway, restClient)
@@ -293,6 +295,7 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
       // The address is what a reconnect needs on a launch that has no password to offer.
       connectedAddress.current = { address: connection.baseUrl, mode: 'secure' }
       rememberLastConnection(connection.baseUrl)
+      installMobileMediaLoader({ baseUrl: connection.baseUrl, mode: 'secure' })
       // A list-load failure is not a connection failure, so it must not overwrite the
       // connected status.
       void loadConnectedSurface(connectedGateway, restClient)
@@ -472,6 +475,7 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
 
   function resetGatewayState(message: string) {
     activeSessionRef.current = { runtimeSessionId: null, storedSessionId: null }
+    installMobileMediaLoader(null)
     setView('list')
     setGateway(null)
     setRest(null)
@@ -623,6 +627,7 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
         const restClient = createRestClient({ ...connection, ...connectionOptions, token })
         const connectedGateway = await connectGateway({ ...connection, ...connectionOptions, token })
         connectedAddress.current = { address: connection.baseUrl, mode: 'lan' }
+        installMobileMediaLoader({ baseUrl: connection.baseUrl, mode: 'lan', token })
         setGateway(connectedGateway)
         setRest(restClient)
         // Re-attach the conversation that was open: a title without its transcript is not the session.
@@ -636,6 +641,7 @@ export function IpadHome({ credentialStore = mobileCredentialStore, connectGatew
       const connectedGateway = await connectGateway({ ...connection, ...connectionOptions, ticket })
       connectedAddress.current = { address: connection.baseUrl, mode: 'secure' }
       rememberLastConnection(connection.baseUrl)
+      installMobileMediaLoader({ baseUrl: connection.baseUrl, mode: 'secure' })
       signedOut.current = false
       setGateway(connectedGateway)
       setRest(restClient)

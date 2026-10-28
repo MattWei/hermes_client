@@ -82,6 +82,12 @@ export async function resolveMediaDisplaySrc(path: string): Promise<string> {
     return path
   }
 
+  // The mobile surface has no Electron bridge and no `file://` access; it fetches gateway files over the
+  // authenticated REST connection and hands back a URL the WebView can render.
+  if (mobileMediaLoader) {
+    return mobileMediaLoader(path)
+  }
+
   if (window.hermesDesktop && isRemoteGateway()) {
     return gatewayMediaDataUrl(path)
   }
@@ -93,6 +99,26 @@ export async function resolveMediaDisplaySrc(path: string): Promise<string> {
   return window.hermesDesktop.readFileDataUrl(filePathFromMediaPath(path))
 }
 
+/**
+ * How a surface that is not Electron resolves a gateway file.
+ *
+ * Registered by the mobile client when it connects and cleared when it disconnects: without it, a gateway
+ * path falls through to `file://…`, which on iOS is a URL the app cannot open at all, so media renders as a
+ * broken player instead of a file it could have fetched.
+ */
+export type MobileMediaLoader = (path: string) => Promise<string>
+
+let mobileMediaLoader: MobileMediaLoader | null = null
+
+export function setMobileMediaLoader(loader: MobileMediaLoader | null): void {
+  mobileMediaLoader = loader
+}
+
+/** True when a non-Electron surface resolves gateway files itself (see `setMobileMediaLoader`). */
+export function hasMobileMediaLoader(): boolean {
+  return mobileMediaLoader !== null
+}
+
 // Audio/video need a seekable source instead of a whole-file data URL. Keep
 // remote URLs untouched and route filesystem paths through the Electron media
 // protocol. Its main-process handler reads local files directly or proxies a
@@ -100,6 +126,10 @@ export async function resolveMediaDisplaySrc(path: string): Promise<string> {
 export async function resolveMediaPlaybackSrc(path: string): Promise<string> {
   if (isInlineMediaSrc(path)) {
     return path
+  }
+
+  if (mobileMediaLoader && isFileMediaPath(path)) {
+    return mobileMediaLoader(path)
   }
 
   if (window.hermesDesktop && ['audio', 'video'].includes(mediaKind(path))) {

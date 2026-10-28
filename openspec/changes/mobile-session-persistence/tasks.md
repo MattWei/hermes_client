@@ -23,6 +23,20 @@
 - [x] 3.2 A launch with no stored password tries that address with the cookie before showing the form.
 - [x] 3.3 Sign-out forgets the address, so an explicit sign-out is not undone by a relaunch.
 
+## 5. Media in a conversation
+
+- [x] 5.1 An mp3 rendered a broken player ("错误") and an "Open audio file" link that did nothing. The
+      shared resolver fell through to `file://…`, which iOS cannot load, and the open link needed the
+      Electron bridge. `evidence/session-audio-playback.md`.
+- [x] 5.2 `lib/media.ts` grew one loader seam (`setMobileMediaLoader`) consulted by both the display and
+      playback resolvers, so images and video share the fix.
+- [x] 5.3 `mobile-media.ts` fetches `GET /api/files/stream?path=…` through `CapacitorHttp`
+      (`responseType: 'arraybuffer'`) and returns an object URL; LAN sends the session token header, secure
+      rides the cookie. Registered on connect, cleared on disconnect.
+- [x] 5.4 On a mobile surface the failed-media state shows the reason instead of an inoperable open button.
+- [x] 5.5 `mobile-media.test.ts` 7 cases; mobile suites 29 files / 264 tests, `tsc` clean.
+- [ ] 5.6 Device check: open the English-listening session on the iPhone and play one of the drill clips.
+
 ## 4. Verification
 
 - [x] 4.1 `ipad-home.test.tsx`: the socket closing reconnects (`connectGateway` twice, no "connection
