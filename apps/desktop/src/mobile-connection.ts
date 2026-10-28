@@ -52,8 +52,13 @@ export function parseMobileConnection(rawUrl: string, mode: MobileConnectionMode
 export function toWebSocketUrl(baseUrl: string, mode: MobileConnectionMode, options: MobileConnectionOptions = {}): string {
   const connection = parseMobileConnection(baseUrl, mode, options)
   const parsed = new URL(connection.baseUrl)
+  // Keep any reverse-proxy prefix from the backend URL (e.g. https://host/mac),
+  // mirroring buildGatewayWsUrl on the Desktop side. Overwriting pathname
+  // outright silently drops the mount point and the socket then dials the
+  // wrong deployment.
+  const prefix = parsed.pathname.replace(/\/+$/, '')
   parsed.protocol = mode === 'secure' ? 'wss:' : 'ws:'
-  parsed.pathname = '/api/ws'
+  parsed.pathname = `${prefix}/api/ws`
   parsed.search = ''
   parsed.hash = ''
   return parsed.toString()
