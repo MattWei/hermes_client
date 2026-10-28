@@ -35,7 +35,10 @@
       rides the cookie. Registered on connect, cleared on disconnect.
 - [x] 5.4 On a mobile surface the failed-media state shows the reason instead of an inoperable open button.
 - [x] 5.5 `mobile-media.test.ts` 7 cases; mobile suites 29 files / 264 tests, `tsc` clean.
-- [ ] 5.6 Device check: open the English-listening session on the iPhone and play one of the drill clips.
+- [x] 5.6 Device check (iPhone 13 Pro / iOS 18.3.2): the drill clips play. Two rounds were needed — the
+      first still failed because `CapacitorHttp` returns an `arraybuffer` body as a base64 string, which
+      became a zero-byte blob. The server access log (`200`, exact byte counts) is what proved the request
+      was never the problem.
 
 ## 4. Verification
 

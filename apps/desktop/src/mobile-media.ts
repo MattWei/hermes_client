@@ -40,6 +40,45 @@ export interface MobileMediaRuntime {
   }): Promise<NativeHttpResponse>
 }
 
+/**
+ * A native bridge can hand back binary in more than one shape.
+ *
+ * Capacitor serialises the body across the bridge, so an `arraybuffer` request may arrive as an
+ * `ArrayBuffer`, a typed-array view, a byte array, or a base64 string depending on the platform and
+ * version. Every shape is decoded here; anything else is reported rather than turned into an empty blob,
+ * because an empty blob is a silent failure that presents as a broken player.
+ */
+export function toBytes(data: unknown): Uint8Array | null {
+  if (data instanceof ArrayBuffer) {
+    return new Uint8Array(data)
+  }
+
+  if (ArrayBuffer.isView(data)) {
+    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+  }
+
+  if (Array.isArray(data)) {
+    return Uint8Array.from(data as number[])
+  }
+
+  if (typeof data === 'string') {
+    try {
+      const binary = atob(data)
+      const bytes = new Uint8Array(binary.length)
+
+      for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index)
+      }
+
+      return bytes
+    } catch {
+      return null
+    }
+  }
+
+  return null
+}
+
 const capacitorRuntime: MobileMediaRuntime = {
   createObjectURL: blob => URL.createObjectURL(blob),
   async fetchBlob(url, headers) {
@@ -87,11 +126,18 @@ export function createMobileMediaLoader(
     // The gateway sets the real content type; falling back to the extension keeps the blob recognisable
     // when a proxy strips the header.
     const type = response.headers['content-type'] || response.headers['Content-Type'] || mediaMime(path)
-    const bytes = response.data instanceof ArrayBuffer
-      ? response.data
-      : new Uint8Array(typeof response.data === 'string' ? [] : (response.data as ArrayLike<number>))
+    const bytes = toBytes(response.data)
 
-    return runtime.createObjectURL(new Blob([bytes], { type }))
+    if (!bytes || bytes.length === 0) {
+      const shape = Array.isArray(response.data) ? 'byte-array' : typeof response.data
+
+      throw new Error(`Gateway returned an unusable body (${shape})`)
+    }
+
+    // Copy out of the view so the blob owns exactly the bytes the gateway sent.
+    const body = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+
+    return runtime.createObjectURL(new Blob([body], { type }))
   }
 }
 

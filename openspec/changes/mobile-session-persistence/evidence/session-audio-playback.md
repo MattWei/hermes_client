@@ -35,6 +35,29 @@ The "Open audio file" fallback then called `openExternalLink`, which is `window.
 - **No dead fallback.** On a surface with a mobile loader the failed-media state renders the reason
   ("Couldn't fetch … from the gateway") instead of an "Open audio file" button that has nothing to open.
 
+## The second failure: the bytes arrived and the bridge changed their shape
+
+After the first fix the player still said 错误. The decisive evidence was **not** in the app — it was the
+gateway's own access log:
+
+```
+GET /api/files/stream?path=...commute_isom60-80608.mp3      200  200880
+GET /api/files/stream?path=...drill_chunk2-20940-slow.mp3   200  150908
+```
+
+The request succeeded with the exact byte counts on disk: authentication, the path, and the route were all
+fine. The failure was after the response arrived — `CapacitorHttp` serialises the body across the native
+bridge, and an `arraybuffer` request comes back as a **base64 string**, not an `ArrayBuffer`. Treating it as
+an `ArrayBuffer` produced a zero-byte blob, which an `<audio>` reports exactly like a missing file.
+
+`toBytes()` now decodes every shape a bridge may produce (ArrayBuffer, typed-array view, byte array, base64
+string) and, when none applies or the result is empty, throws with the shape it saw. That message is shown
+under the player, so the next failure of this kind names itself instead of reading like a dead file.
+
+**Lesson recorded:** when a remote surface fails at a request, read the *server's* access log before
+theorising about the client. A `200` with a real byte count eliminates the whole authentication/path/route
+family in one line and points at the seam where the client already has the data.
+
 ## Tradeoff, stated rather than hidden
 
 The whole file is fetched before playback instead of streaming: `CapacitorHttp` returns a buffered body.
@@ -44,6 +67,9 @@ through the same route, which the gateway already supports.
 
 ## Verification
 
-`mobile-media.test.ts` (7 cases): the URL it builds, `file://` stripping, the LAN header, no header on a
-secure connection, the object URL's type, a 404 rejected rather than played, and the non-native fallback.
+`mobile-media.test.ts` (10 cases): the URL it builds, `file://` stripping, the LAN header, no header on a
+secure connection, the object URL's type, a 404 rejected rather than played, the non-native fallback, base64
+decoding, an unusable body named rather than mounted, and every accept-to-bytes shape.
 Mobile suites: 29 files / 264 tests, `tsc` clean.
+
+On the device: the drill clips play on iPhone 13 Pro / iOS 18.3.2.

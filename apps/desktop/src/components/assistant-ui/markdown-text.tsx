@@ -119,12 +119,22 @@ function useOpenMediaFile(path: string) {
   return { open, openFailed }
 }
 
-function OpenMediaFailedNote({ name }: { name: string }) {
+function OpenMediaFailedNote({ name, reason }: { name: string, reason?: string | null }) {
   return (
     <span className="mt-1 block text-xs text-muted-foreground">
       Couldn&apos;t fetch {name} from the gateway (missing, unreadable, or too large).
+      {reason ? ` — ${reason}` : ''}
     </span>
   )
+}
+
+/** What actually went wrong, so a failed player names its cause instead of only reporting that it failed. */
+function mediaFailureReason(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message
+  }
+
+  return String(error ?? 'unknown error')
 }
 
 function OpenMediaButton({ kind, path }: { kind: 'audio' | 'video'; path: string }) {
@@ -153,6 +163,7 @@ function OpenMediaButton({ kind, path }: { kind: 'audio' | 'video'; path: string
 function MediaAttachment({ path }: { path: string }) {
   const [src, setSrc] = useState('')
   const [failed, setFailed] = useState(false)
+  const [failureReason, setFailureReason] = useState<null | string>(null)
   const { open, openFailed } = useOpenMediaFile(path)
   const kind = mediaKind(path)
   const name = mediaName(path)
@@ -162,6 +173,7 @@ function MediaAttachment({ path }: { path: string }) {
     let objectUrl = ''
 
     setFailed(false)
+    setFailureReason(null)
     setSrc('')
 
     if (kind === 'file') {
@@ -184,8 +196,9 @@ function MediaAttachment({ path }: { path: string }) {
           URL.revokeObjectURL(objectUrl)
         }
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (!cancelled) {
+          setFailureReason(mediaFailureReason(error))
           setFailed(true)
         }
       })
@@ -212,7 +225,9 @@ function MediaAttachment({ path }: { path: string }) {
       <span className="my-3 block max-w-md rounded-xl border border-(--ui-stroke-tertiary) bg-muted/35 p-3">
         <span className="mb-2 block truncate text-xs font-medium text-muted-foreground">{name}</span>
         <audio className="block w-full" controls onError={() => setFailed(true)} preload="metadata" src={src} />
-        {failed && <OpenMediaButton kind="audio" path={path} />}
+        {failed && (hasMobileMediaLoader()
+          ? <OpenMediaFailedNote name={name} reason={failureReason} />
+          : <OpenMediaButton kind="audio" path={path} />)}
       </span>
     )
   }
@@ -227,7 +242,9 @@ function MediaAttachment({ path }: { path: string }) {
           onError={() => setFailed(true)}
           src={src}
         />
-        {failed && <OpenMediaButton kind="video" path={path} />}
+        {failed && (hasMobileMediaLoader()
+          ? <OpenMediaFailedNote name={name} reason={failureReason} />
+          : <OpenMediaButton kind="video" path={path} />)}
       </span>
     )
   }
